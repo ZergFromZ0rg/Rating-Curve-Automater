@@ -1,3 +1,4 @@
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -35,3 +36,15 @@ def test_export_rating_curve_report_writes_excel(tmp_path):
     export_rating_curve_report(df, path, a=1.18, b=1.72, h0=0.18)
 
     assert path.exists()
+
+    workbook = pd.ExcelFile(path)
+    assert "Original Data" in workbook.sheet_names
+    assert "Summary" in workbook.sheet_names
+    assert "Plot" in workbook.sheet_names
+    assert "Plot Data" in workbook.sheet_names
+
+    with zipfile.ZipFile(path) as zf:
+        chart_xml = zf.read("xl/charts/chart1.xml").decode("utf-8", errors="ignore")
+        assert "numRef" in chart_xml
+        assert "'Plot'!$B$2" in chart_xml
+        assert "'Plot'!$C$2" in chart_xml
