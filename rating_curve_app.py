@@ -59,15 +59,22 @@ class RatingCurveApp:
         tk.Button(row, text="Browse", command=self._browse_dataset, width=12, bg="#a6a6a6", fg="#111111", font=("Helvetica", 12, "bold")).pack(side="left", padx=(12, 0))
 
         sheet_row = tk.Frame(page, bg="#2d2d2d")
-        sheet_row.pack(fill="x", padx=18, pady=(0, 18))
+        sheet_row.pack(fill="x", padx=18, pady=(0, 6))
         tk.Label(sheet_row, text="Sheet name:", bg="#2d2d2d", fg="white", font=("Helvetica", 12, "bold")).pack(side="left")
         self.sheet_entry = tk.Entry(sheet_row, width=24, bg="#d9d9d9", fg="#1d1d1d", font=("Helvetica", 12))
         self.sheet_entry.pack(side="left", padx=(8, 8))
-        tk.Label(sheet_row, text="leave blank to auto-detect", bg="#2d2d2d", fg="#c8c8c8", font=("Helvetica", 10, "italic")).pack(side="left")
+        tk.Label(sheet_row, text="blank = auto-detect", bg="#2d2d2d", fg="#c8c8c8", font=("Helvetica", 10, "italic")).pack(side="left")
+
+        header_row = tk.Frame(page, bg="#2d2d2d")
+        header_row.pack(fill="x", padx=18, pady=(0, 18))
+        tk.Label(header_row, text="Header row:", bg="#2d2d2d", fg="white", font=("Helvetica", 12, "bold")).pack(side="left")
+        self.header_entry = tk.Entry(header_row, width=8, bg="#d9d9d9", fg="#1d1d1d", font=("Helvetica", 12))
+        self.header_entry.pack(side="left", padx=(8, 8))
+        tk.Label(header_row, text="blank = auto-detect (1 = first row)", bg="#2d2d2d", fg="#c8c8c8", font=("Helvetica", 10, "italic")).pack(side="left")
 
         tk.Button(page, text="Upload and Validate Dataset", command=self._run_validation, width=34, height=2, bg="#b7b0b8", fg="#111111", font=("Helvetica", 13, "bold")).pack(fill="x", padx=18, pady=(8, 0))
 
-        self.input_status = tk.Label(page, text="Ready", bg="#2d2d2d", fg="#f0f0f0", justify="left", font=("Helvetica", 11))
+        self.input_status = tk.Label(page, text="Ready", bg="#2d2d2d", fg="#f0f0f0", justify="left", font=("Helvetica", 11), wraplength=800)
         self.input_status.pack(anchor="w", padx=18, pady=(24, 0))
 
         return page
@@ -190,8 +197,22 @@ class RatingCurveApp:
 
         sheet_name = self.sheet_entry.get().strip() or None
 
+        header_text = self.header_entry.get().strip()
+        if header_text:
+            try:
+                header_row = int(header_text) - 1
+                if header_row < 0:
+                    raise ValueError
+            except ValueError:
+                self.input_status.config(text=f"Invalid header row: {header_text!r}. Enter a positive number or leave blank.")
+                return
+        else:
+            header_row = None
+
         try:
-            result = self.workflow.load_and_validate(dataset, sheet_name=sheet_name)
+            result = self.workflow.load_and_validate(
+                dataset, sheet_name=sheet_name, header_row=header_row
+            )
         except Exception as exc:
             self.input_status.config(text=f"Load failed: {exc}")
             self._set_warning_list([str(exc)])
@@ -206,8 +227,18 @@ class RatingCurveApp:
         self._set_warning_list(listed)
 
         self._log(self.status_box, result.summary_line(), clear=True)
-        if result.load_report is not None:
-            self._log(self.status_box, result.load_report.describe())
+        report = result.load_report
+        needs_review = report is not None and report.needs_review
+        if report is not None:
+            self._log(self.status_box, report.describe())
+            if needs_review:
+                messagebox.showwarning(
+                    "Check the detected layout",
+                    "The loader is not fully confident about the sheet, header row "
+                    "or column mapping.\n\nReview the details in the status panel; if "
+                    "something is wrong, go back and set the sheet name / header row "
+                    "explicitly.",
+                )
         if result.flags:
             self._log(self.status_box, f"{len(result.flags)} invalid row(s) will be excluded from the fit.")
         if result.warnings:
@@ -215,7 +246,11 @@ class RatingCurveApp:
         if not listed:
             self._log(self.status_box, "No validation flags detected.")
 
-        self.input_status.config(text="Dataset ready for review.")
+        self.input_status.config(
+            text="Loaded with layout warnings - check the status panel."
+            if needs_review
+            else "Dataset ready for review."
+        )
         self.show_page("validation")
 
         if result.has_blocking_issues:
