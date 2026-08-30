@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Generated artifacts
+cleaned_measurements.csv
+rating_curve_report.xlsx
+*_report.xlsx
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
