@@ -98,6 +98,69 @@ def test_csv_input(tmp_path):
     assert len(canonical) == 6
 
 
+def test_two_row_header_is_combined(tmp_path):
+    path = tmp_path / "tworow.xlsx"
+    n = 20
+    rows = [["Date", "Stage", "Discharge"], ["", "(m)", "(m3/s)"]]
+    for i in range(n):
+        rows.append([f"2021-01-{i + 1:02d}", 0.3 + 0.03 * i, 0.1 + 0.05 * i])
+    pd.DataFrame(rows).to_excel(path, sheet_name="Sheet1", index=False, header=False)
+
+    canonical, report = load_measurements(path)
+
+    assert report.ok
+    assert report.two_row_header
+    assert report.header_row == 0
+    assert report.n_rows == n
+    # unit came from the second header row and was converted
+    assert report.units[STAGE_M].label == "m"
+
+
+def test_section_title_row_is_not_mistaken_for_header(tmp_path):
+    path = tmp_path / "titled.xlsx"
+    rows = [
+        ["River gauging record - site 12", None, None],
+        [None, None, None],
+        ["Date", "Gauge height (m)", "Flow (m3/s)"],
+    ]
+    for i in range(15):
+        rows.append([f"2021-02-{i + 1:02d}", 0.4 + 0.02 * i, 0.2 + 0.03 * i])
+    pd.DataFrame(rows).to_excel(path, sheet_name="Sheet1", index=False, header=False)
+
+    _, report = load_measurements(path)
+    assert report.header_row == 2
+    assert report.ok
+
+
+def test_ambiguous_sheets_lower_confidence(tmp_path):
+    path = tmp_path / "twins.xlsx"
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=8, freq="MS"),
+        "Stage (m)": np.linspace(0.3, 1.0, 8),
+        "Discharge (m3/s)": np.linspace(0.1, 0.9, 8),
+    })
+    _write(path, {"2019": frame, "2020": frame})
+
+    _, report = load_measurements(path)
+    assert not report.sheet_confident
+    assert report.needs_review
+
+
+def test_explicit_header_row_override(tmp_path):
+    path = tmp_path / "override.xlsx"
+    data = pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=6, freq="MS"),
+        "Stage (m)": np.linspace(0.3, 1.0, 6),
+        "Discharge (m3/s)": np.linspace(0.1, 0.9, 6),
+    })
+    _write(path, {"Data": data}, startrow={"Data": 4})
+
+    _, report = load_measurements(path, header_row=4)
+    assert report.header_row == 4
+    assert report.header_confident
+    assert report.ok
+
+
 def test_workflow_end_to_end_on_foreign_sheet(tmp_path):
     path = tmp_path / "foreign2.xlsx"
     n = 50

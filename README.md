@@ -27,7 +27,7 @@ python3 rating_curve_app.py
 
 Three-step wizard:
 
-1. **Input Dataset** – browse to an `.xlsx` / `.xls` / `.csv` file; leave the sheet name blank to auto-detect (or name it), then *Upload and Validate*. The status panel then shows which sheet, header row, column mapping and units were used.
+1. **Input Dataset** – browse to an `.xlsx` / `.xls` / `.csv` file; leave *Sheet name* and *Header row* blank to auto-detect (or set them), then *Upload and Validate*. The status panel shows which sheet, header row, column mapping and units were used; if the loader isn't confident you get a warning prompting you to set them explicitly.
 2. **Validation & Flags** – review valid / invalid / warning counts and the per-row flag list (`INVALID` rows are excluded from the fit, `WARNING` rows are kept). Optionally enter `h0` (stage of zero flow); leave blank to estimate it from the data. Choose 1 segment (single power law) or 2 (piecewise, auto breakpoint). Continue to run the regression.
 3. **Export Report** – inspect the rating-curve preview (toggle log-log axes), set the uncertainty threshold, and save the multi-sheet Excel report.
 
@@ -55,10 +55,15 @@ The tool accepts `.xlsx`, `.xls` and `.csv`. It needs a **date**, a **stage**
 and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
 `src/loader.load_measurements()` handles the variability:
 
-- **Sheet** – if not named, the sheet whose header resolves the most required
-  fields is chosen.
-- **Header row** – title / metadata rows above the table are skipped; the header
-  row is found by scanning the first 15 rows.
+- **Sheet** – if not named, each sheet is scored by how many required fields its
+  header resolves and how numeric the data beneath it is; the best is chosen. If
+  two sheets look equally like measurement data the report is marked
+  *needs review*.
+- **Header row** – title / metadata rows above the table are skipped. Each of the
+  first 15 rows is scored by required-field resolution **and** whether the cells
+  beneath the stage/discharge columns are actually numeric, so a section-title
+  row is not mistaken for the header. Two-row headers (name row + unit row) are
+  detected and combined. Pass `header_row=` (0-based) to override.
 - **Column names** – matched loosely against a synonym table in `src/schema.py`
   (`Gauge Height`, `Stage`, `WSE`, `GH`, `Q`, `Streamflow`, `Sample Date`, …).
   Ambiguities (e.g. two stage-like columns) are reported, not guessed silently.
@@ -68,7 +73,9 @@ and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
 - **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`
   forces a mapping when detection is wrong.
 
-Every choice is recorded on the returned `LoadReport` (and shown in the GUI).
+Every choice is recorded on the returned `LoadReport` (and shown in the GUI),
+including `sheet_confident` / `header_confident` flags and a `needs_review`
+property.
 
 A row is flagged **invalid** when the date is unparseable, stage is missing or
 ≤ 0, discharge is missing or negative, or `Quality` reads bad/poor/unreliable/

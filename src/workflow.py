@@ -82,9 +82,13 @@ class RatingCurveWorkflow:
         dataset_path: str | Path,
         sheet_name: str | int | None = DEFAULT_SHEET_NAME,
         column_overrides: dict[str, str] | None = None,
+        header_row: int | None = None,
     ) -> ValidationResult:
         canonical, report = load_measurements(
-            dataset_path, sheet=sheet_name, column_overrides=column_overrides
+            dataset_path,
+            sheet=sheet_name,
+            header_row=header_row,
+            column_overrides=column_overrides,
         )
         if not report.ok:
             missing = ", ".join(report.mapping.unresolved_required)
