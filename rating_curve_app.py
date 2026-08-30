@@ -6,11 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from src.rating_curve_plot import make_rating_curve_figure
-from src.workflow import (
-    DEFAULT_SHEET_NAME,
-    DEFAULT_UNCERTAINTY_THRESHOLD,
-    RatingCurveWorkflow,
-)
+from src.workflow import DEFAULT_UNCERTAINTY_THRESHOLD, RatingCurveWorkflow
 
 
 WINDOW_TITLE = "Rating Curve Automater"
@@ -66,8 +62,8 @@ class RatingCurveApp:
         sheet_row.pack(fill="x", padx=18, pady=(0, 18))
         tk.Label(sheet_row, text="Sheet name:", bg="#2d2d2d", fg="white", font=("Helvetica", 12, "bold")).pack(side="left")
         self.sheet_entry = tk.Entry(sheet_row, width=24, bg="#d9d9d9", fg="#1d1d1d", font=("Helvetica", 12))
-        self.sheet_entry.insert(0, DEFAULT_SHEET_NAME)
-        self.sheet_entry.pack(side="left", padx=(8, 0))
+        self.sheet_entry.pack(side="left", padx=(8, 8))
+        tk.Label(sheet_row, text="leave blank to auto-detect", bg="#2d2d2d", fg="#c8c8c8", font=("Helvetica", 10, "italic")).pack(side="left")
 
         tk.Button(page, text="Upload and Validate Dataset", command=self._run_validation, width=34, height=2, bg="#b7b0b8", fg="#111111", font=("Helvetica", 13, "bold")).pack(fill="x", padx=18, pady=(8, 0))
 
@@ -192,14 +188,14 @@ class RatingCurveApp:
             self.input_status.config(text="No dataset selected. Please choose a file first.")
             return
 
-        sheet_name = self.sheet_entry.get().strip() or DEFAULT_SHEET_NAME
+        sheet_name = self.sheet_entry.get().strip() or None
 
         try:
             result = self.workflow.load_and_validate(dataset, sheet_name=sheet_name)
         except Exception as exc:
-            self.input_status.config(text=f"Validation failed: {exc}")
-            self._set_warning_list([f"Validation failed: {exc}"])
-            self._log(self.status_box, f"Validation failed: {exc}", clear=True)
+            self.input_status.config(text=f"Load failed: {exc}")
+            self._set_warning_list([str(exc)])
+            self._log(self.status_box, f"Load failed: {exc}", clear=True)
             self.show_page("validation")
             return
 
@@ -210,6 +206,8 @@ class RatingCurveApp:
         self._set_warning_list(listed)
 
         self._log(self.status_box, result.summary_line(), clear=True)
+        if result.load_report is not None:
+            self._log(self.status_box, result.load_report.describe())
         if result.flags:
             self._log(self.status_box, f"{len(result.flags)} invalid row(s) will be excluded from the fit.")
         if result.warnings:

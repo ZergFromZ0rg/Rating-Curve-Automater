@@ -14,13 +14,15 @@ from pathlib import Path
 import pandas as pd
 
 from src.field_measurement_validation import clean_and_validate_measurements
+from src.loader import LoadReport, load_measurements
 from src.rating_curve_fitting import fit_rating_curve
 from src.rating_curve_report import export_rating_curve_report
+from src.schema import DATE, DISCHARGE_CMS, FIELD_LABELS, STAGE_M
 
-DEFAULT_SHEET_NAME = "Measurements"
+DEFAULT_SHEET_NAME: str | None = None
 DEFAULT_UNCERTAINTY_THRESHOLD = 0.25
 
-_DISPLAY_COLS = ["Date", "Stage Above Bed (m)", "Measured Discharge Q (m³/s)"]
+_DISPLAY_COLS = [DATE, STAGE_M, DISCHARGE_CMS]
 
 
 def _describe_rows(df: pd.DataFrame, note_col: str) -> list[str]:
@@ -29,8 +31,7 @@ def _describe_rows(df: pd.DataFrame, note_col: str) -> list[str]:
         parts = []
         for col in _DISPLAY_COLS:
             if col in df.columns:
-                label = col.split(" ")[0]
-                parts.append(f"{label}: {row[col]}")
+                parts.append(f"{FIELD_LABELS[col]}: {row[col]}")
         parts.append(str(row[note_col]))
         lines.append(" | ".join(parts))
     return lines
@@ -42,6 +43,7 @@ class ValidationResult:
     valid_count: int
     invalid_count: int
     warning_count: int
+    load_report: LoadReport | None = None
     flags: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -78,10 +80,18 @@ class RatingCurveWorkflow:
     def load_and_validate(
         self,
         dataset_path: str | Path,
-        sheet_name: str | int = DEFAULT_SHEET_NAME,
+        sheet_name: str | int | None = DEFAULT_SHEET_NAME,
+        column_overrides: dict[str, str] | None = None,
     ) -> ValidationResult:
-        df = pd.read_excel(dataset_path, sheet_name=sheet_name)
-        cleaned = clean_and_validate_measurements(df)
+        canonical, report = load_measurements(
+            dataset_path, sheet=sheet_name, column_overrides=column_overrides
+        )
+        if not report.ok:
+            missing = ", ".join(report.mapping.unresolved_required)
+            raise ValueError(
+                f"Could not identify required column(s): {missing}.\n{report.describe()}"
+            )
+        cleaned = clean_and_validate_measurements(canonical)
         self.cleaned_df = cleaned
         self.fit_params = None
 
@@ -93,6 +103,7 @@ class RatingCurveWorkflow:
             valid_count=int(cleaned["is_valid"].sum()),
             invalid_count=int((~cleaned["is_valid"]).sum()),
             warning_count=int(cleaned["has_warning"].sum()),
+            load_report=report,
             flags=_describe_rows(invalid_rows, "validation_notes"),
             warnings=_describe_rows(warning_rows, "warning_notes"),
         )

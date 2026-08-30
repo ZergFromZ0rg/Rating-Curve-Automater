@@ -27,15 +27,15 @@ python3 rating_curve_app.py
 
 Three-step wizard:
 
-1. **Input Dataset** – browse to an `.xlsx` workbook and set the sheet name (defaults to `Measurements`), then *Upload and Validate*.
+1. **Input Dataset** – browse to an `.xlsx` / `.xls` / `.csv` file; leave the sheet name blank to auto-detect (or name it), then *Upload and Validate*. The status panel then shows which sheet, header row, column mapping and units were used.
 2. **Validation & Flags** – review valid / invalid / warning counts and the per-row flag list (`INVALID` rows are excluded from the fit, `WARNING` rows are kept). Optionally enter `h0` (stage of zero flow); leave blank to estimate it from the data. Choose 1 segment (single power law) or 2 (piecewise, auto breakpoint). Continue to run the regression.
 3. **Export Report** – inspect the rating-curve preview (toggle log-log axes), set the uncertainty threshold, and save the multi-sheet Excel report.
 
 ### Command line
 
 ```bash
-# Clean/validate any workbook to a CSV
-python3 -m src.field_measurement_validation path/to/data.xlsx --sheet-name Measurements --output-csv cleaned_measurements.csv
+# Clean/validate any workbook to a CSV (sheet auto-detected unless named)
+python3 -m src.field_measurement_validation path/to/data.xlsx --output-csv cleaned_measurements.csv
 
 # Clean the bundled 10-year practice dataset (either form)
 python3 -m src.field_measurement_validation --default-dataset
@@ -51,9 +51,24 @@ python3 -m src.rating_curve_report
 
 ## Input format
 
-The `Measurements` sheet needs a date, a stage, and a discharge column. Column
-names are matched loosely, e.g. `Date`, `Stage Above Bed (m)`,
-`Measured Discharge Q (m³/s)`, plus optional `Quality` and `Field Notes`.
+The tool accepts `.xlsx`, `.xls` and `.csv`. It needs a **date**, a **stage**
+and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
+`src/loader.load_measurements()` handles the variability:
+
+- **Sheet** – if not named, the sheet whose header resolves the most required
+  fields is chosen.
+- **Header row** – title / metadata rows above the table are skipped; the header
+  row is found by scanning the first 15 rows.
+- **Column names** – matched loosely against a synonym table in `src/schema.py`
+  (`Gauge Height`, `Stage`, `WSE`, `GH`, `Q`, `Streamflow`, `Sample Date`, …).
+  Ambiguities (e.g. two stage-like columns) are reported, not guessed silently.
+- **Units** – read from the header (`(ft)`, `(cfs)`, `(cm)`, `ML/d`, …) and
+  converted to SI (metres, m³/s). If no unit is found, SI is assumed and the
+  report says so.
+- **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`
+  forces a mapping when detection is wrong.
+
+Every choice is recorded on the returned `LoadReport` (and shown in the GUI).
 
 A row is flagged **invalid** when the date is unparseable, stage is missing or
 ≤ 0, discharge is missing or negative, or `Quality` reads bad/poor/unreliable/
@@ -83,7 +98,10 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 | `rating_curve_app.py` | Tkinter GUI (thin view over `src/workflow.py`) |
 | `process_field_measurements.py` | Batch-clean the bundled dataset |
 | `src/workflow.py` | Headless load → validate → fit → export controller |
-| `src/field_measurement_validation.py` | Column detection, cleaning, validation, warning tier |
+| `src/schema.py` | Canonical column schema + header resolution |
+| `src/units.py` | Stage/discharge unit detection and SI conversion |
+| `src/loader.py` | `load_measurements()` — sheet/header/column/unit detection + `LoadReport` |
+| `src/field_measurement_validation.py` | Cleaning, validation, warning tier |
 | `src/rating_curve_fitting.py` | `h0` estimation and power-law fit |
 | `src/rating_curve_report.py` | Excel report + chart |
 | `src/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |

@@ -138,4 +138,4 @@ def test_select_valid_measurements_applies_flag_and_dropna():
     kept = select_valid_measurements(df)
 
     assert len(kept) == 2
-    assert kept["Stage Above Bed (m)"].tolist() == [0.4, 0.7]
+    assert kept["stage_m"].tolist() == [0.4, 0.7]

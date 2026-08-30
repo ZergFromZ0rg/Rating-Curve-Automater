@@ -5,12 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.rating_curve_fitting import (
-    DISCHARGE_COL,
-    STAGE_COL,
-    predict_discharge,
-    select_valid_measurements,
-)
+from src.rating_curve_fitting import predict_discharge, select_valid_measurements
+from src.schema import DISCHARGE_CMS, STAGE_M
 
 OBSERVED_COLOR = "#1f77b4"
 MODEL_COLOR = "#d62728"
@@ -35,8 +31,8 @@ def make_rating_curve_figure(
     from matplotlib.figure import Figure
 
     working = select_valid_measurements(df)
-    stage = working[STAGE_COL].to_numpy(dtype=float)
-    observed = working[DISCHARGE_COL].to_numpy(dtype=float)
+    stage = working[STAGE_M].to_numpy(dtype=float)
+    observed = working[DISCHARGE_CMS].to_numpy(dtype=float)
 
     fig = figure if figure is not None else Figure(figsize=(6.4, 3.8))
     fig.clear()
