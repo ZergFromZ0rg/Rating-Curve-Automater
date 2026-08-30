@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import PatternFill
+
+from src.rating_curve_fitting import select_valid_measurements
 
 
 def build_observed_modeled_table(
@@ -14,14 +17,22 @@ def build_observed_modeled_table(
     b: float,
     h0: float,
     uncertainty_threshold: float = 0.25,
+    predict: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> pd.DataFrame:
-    """Build an observed-vs-modeled table with uncertainty flags."""
-    working = df.copy()
-    working = working.dropna(subset=["Stage Above Bed (m)", "Measured Discharge Q (m³/s)"]).copy()
+    """Build an observed-vs-modeled table with uncertainty flags.
+
+    Operates on the same valid rows as :func:`fit_rating_curve` so the report
+    reflects the data the model was actually fitted on. ``predict`` overrides
+    the single power law (used for segmented curves).
+    """
+    working = select_valid_measurements(df)
 
     stage = working["Stage Above Bed (m)"].astype(float).to_numpy()
     observed = working["Measured Discharge Q (m³/s)"].astype(float).to_numpy()
-    modeled = a * np.power(np.maximum(stage - h0, 1e-9), b)
+    if predict is not None:
+        modeled = np.asarray(predict(stage), dtype=float)
+    else:
+        modeled = a * np.power(np.maximum(stage - h0, 1e-9), b)
     residual = observed - modeled
     relative_error = np.abs(residual / np.maximum(observed, 1e-9))
 
@@ -41,18 +52,25 @@ def build_observed_modeled_table(
 
 
 def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
-    summary = pd.DataFrame(
-        [
-            {"Metric": "a", "Value": fit["a"]},
-            {"Metric": "b", "Value": fit["b"]},
-            {"Metric": "h0", "Value": fit["h0"]},
-            {"Metric": "R^2", "Value": fit["r_squared"]},
-            {"Metric": "Valid points", "Value": len(table)},
-            {"Metric": "Uncertain points", "Value": int((table["Uncertainty Flag"] == "Uncertain").sum())},
-            {"Metric": "Normal points", "Value": int((table["Uncertainty Flag"] == "Normal").sum())},
-        ]
-    )
-    return summary
+    rows = [{"Metric": "h0", "Value": fit["h0"]}]
+
+    if fit.get("is_segmented"):
+        rows.append({"Metric": "breakpoint stage (m)", "Value": fit["breakpoint"]})
+        for i, seg in enumerate(fit["segments"], start=1):
+            rows.append({"Metric": f"segment {i} a", "Value": seg["a"]})
+            rows.append({"Metric": f"segment {i} b", "Value": seg["b"]})
+            rows.append({"Metric": f"segment {i} points", "Value": seg["n_points"]})
+    else:
+        rows.append({"Metric": "a", "Value": fit["a"]})
+        rows.append({"Metric": "b", "Value": fit["b"]})
+
+    rows += [
+        {"Metric": "R^2", "Value": fit["r_squared"]},
+        {"Metric": "Valid points", "Value": len(table)},
+        {"Metric": "Uncertain points", "Value": int((table["Uncertainty Flag"] == "Uncertain").sum())},
+        {"Metric": "Normal points", "Value": int((table["Uncertainty Flag"] == "Normal").sum())},
+    ]
+    return pd.DataFrame(rows)
 
 
 def export_rating_curve_report(
@@ -62,23 +80,36 @@ def export_rating_curve_report(
     b: float,
     h0: float,
     uncertainty_threshold: float = 0.25,
+    r_squared: float | None = None,
+    fit: dict | None = None,
 ) -> Path:
+    """Write the multi-sheet Excel report.
+
+    Pass ``fit`` (the dict from :func:`fit_rating_curve`) to render segmented
+    curves and reuse its overall R²; otherwise a single power law ``a``/``b``/
+    ``h0`` is used.
+    """
+    from src.rating_curve_fitting import predict_discharge
+
+    predict = (lambda stage: predict_discharge(fit, stage)) if fit is not None else None
     original_data = df.copy()
-    table = build_observed_modeled_table(df, a=a, b=b, h0=h0, uncertainty_threshold=uncertainty_threshold)
+    table = build_observed_modeled_table(
+        df, a=a, b=b, h0=h0, uncertainty_threshold=uncertainty_threshold, predict=predict
+    )
 
-    if len(table) > 1:
-        ss_res = float(np.sum((table["Measured Discharge Q (m³/s)"] - table["Modeled Discharge Q (m³/s)"]) ** 2))
-        ss_tot = float(np.sum((table["Measured Discharge Q (m³/s)"] - table["Measured Discharge Q (m³/s)"].mean()) ** 2))
-        r_squared = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
-    else:
-        r_squared = 1.0
+    if fit is not None and r_squared is None:
+        r_squared = fit.get("r_squared")
 
-    fit_summary = {
-        "a": a,
-        "b": b,
-        "h0": h0,
-        "r_squared": r_squared,
-    }
+    if r_squared is None:
+        if len(table) > 1:
+            ss_res = float(np.sum((table["Measured Discharge Q (m³/s)"] - table["Modeled Discharge Q (m³/s)"]) ** 2))
+            ss_tot = float(np.sum((table["Measured Discharge Q (m³/s)"] - table["Measured Discharge Q (m³/s)"].mean()) ** 2))
+            r_squared = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
+        else:
+            r_squared = 1.0
+
+    fit_summary = dict(fit) if fit is not None else {"a": a, "b": b, "h0": h0}
+    fit_summary["r_squared"] = r_squared
     summary = build_summary_table(fit_summary, table)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +196,9 @@ def main() -> None:
 
     df = pd.read_csv(input_path)
     fit = fit_rating_curve(df)
-    export_rating_curve_report(df, output_path, a=fit["a"], b=fit["b"], h0=fit["h0"])
+    export_rating_curve_report(
+        df, output_path, a=fit["a"], b=fit["b"], h0=fit["h0"], r_squared=fit["r_squared"], fit=fit
+    )
 
     print(f"Rating-curve report written to: {output_path.name}")
 
