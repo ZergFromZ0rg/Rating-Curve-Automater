@@ -9,6 +9,13 @@ from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import PatternFill
 
 from src.rating_curve_fitting import select_valid_measurements
+from src.schema import DATE, DISCHARGE_CMS, STAGE_M
+
+# Friendly column labels used in the exported workbook.
+OUT_DATE = "Date"
+OUT_STAGE = "Stage Above Bed (m)"
+OUT_OBSERVED = "Measured Discharge Q (m³/s)"
+OUT_MODELED = "Modeled Discharge Q (m³/s)"
 
 
 def build_observed_modeled_table(
@@ -27,8 +34,8 @@ def build_observed_modeled_table(
     """
     working = select_valid_measurements(df)
 
-    stage = working["Stage Above Bed (m)"].astype(float).to_numpy()
-    observed = working["Measured Discharge Q (m³/s)"].astype(float).to_numpy()
+    stage = working[STAGE_M].astype(float).to_numpy()
+    observed = working[DISCHARGE_CMS].astype(float).to_numpy()
     if predict is not None:
         modeled = np.asarray(predict(stage), dtype=float)
     else:
@@ -39,10 +46,10 @@ def build_observed_modeled_table(
     flags = np.where(relative_error > uncertainty_threshold, "Uncertain", "Normal")
 
     output = pd.DataFrame({
-        "Date": working.get("Date", pd.Series(index=working.index, dtype="object")),
-        "Stage Above Bed (m)": stage,
-        "Measured Discharge Q (m³/s)": observed,
-        "Modeled Discharge Q (m³/s)": modeled,
+        OUT_DATE: working.get(DATE, pd.Series(index=working.index, dtype="object")),
+        OUT_STAGE: stage,
+        OUT_OBSERVED: observed,
+        OUT_MODELED: modeled,
         "Residual": residual,
         "Relative Error": relative_error,
         "Uncertainty Flag": flags,
@@ -102,8 +109,8 @@ def export_rating_curve_report(
 
     if r_squared is None:
         if len(table) > 1:
-            ss_res = float(np.sum((table["Measured Discharge Q (m³/s)"] - table["Modeled Discharge Q (m³/s)"]) ** 2))
-            ss_tot = float(np.sum((table["Measured Discharge Q (m³/s)"] - table["Measured Discharge Q (m³/s)"].mean()) ** 2))
+            ss_res = float(np.sum((table[OUT_OBSERVED] - table[OUT_MODELED]) ** 2))
+            ss_tot = float(np.sum((table[OUT_OBSERVED] - table[OUT_OBSERVED].mean()) ** 2))
             r_squared = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 1.0
         else:
             r_squared = 1.0
@@ -121,10 +128,10 @@ def export_rating_curve_report(
 
         plot_data = pd.DataFrame(
             {
-                "Stage Above Bed (m)": table["Stage Above Bed (m)"],
-                "Observed Discharge Q (m³/s)": table["Measured Discharge Q (m³/s)"],
-                "Modeled Discharge Q (m³/s)": table["Modeled Discharge Q (m³/s)"],
-                "Uncertain Observed Discharge Q (m³/s)": np.where(table["Uncertainty Flag"] == "Uncertain", table["Measured Discharge Q (m³/s)"], np.nan),
+                "Stage Above Bed (m)": table[OUT_STAGE],
+                "Observed Discharge Q (m³/s)": table[OUT_OBSERVED],
+                "Modeled Discharge Q (m³/s)": table[OUT_MODELED],
+                "Uncertain Observed Discharge Q (m³/s)": np.where(table["Uncertainty Flag"] == "Uncertain", table[OUT_OBSERVED], np.nan),
             }
         )
         plot_data.to_excel(writer, sheet_name="Plot Data", index=False)

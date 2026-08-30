@@ -5,29 +5,27 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.schema import DISCHARGE_CMS, STAGE_M, ensure_canonical
 
 DEFAULT_H0 = 0.18
 
-STAGE_COL = "Stage Above Bed (m)"
-DISCHARGE_COL = "Measured Discharge Q (m³/s)"
+# Back-compat aliases (canonical names now live in src.schema).
+STAGE_COL = STAGE_M
+DISCHARGE_COL = DISCHARGE_CMS
 
 
 def select_valid_measurements(df: pd.DataFrame) -> pd.DataFrame:
     """Return the stage/discharge rows that are usable for curve work.
 
-    Applies the ``is_valid`` flag (when present) and drops rows missing a
-    stage or discharge value. Used by both the fitter and the report so the
-    two always operate on the same set of points.
+    Accepts a canonical or a raw frame (see :func:`~src.schema.ensure_canonical`),
+    applies the ``is_valid`` flag when present, and drops rows missing a stage
+    or discharge value. Used by both the fitter and the report so the two always
+    operate on the same set of points.
     """
-    if STAGE_COL not in df.columns:
-        raise ValueError(f"Stage column '{STAGE_COL}' is required.")
-    if DISCHARGE_COL not in df.columns:
-        raise ValueError(f"Discharge column '{DISCHARGE_COL}' is required.")
-
-    working = df.copy()
+    working = ensure_canonical(df, required=(STAGE_M, DISCHARGE_CMS)).copy()
     if "is_valid" in working.columns:
         working = working[working["is_valid"].fillna(False).astype(bool)]
-    working = working.dropna(subset=[STAGE_COL, DISCHARGE_COL])
+    working = working.dropna(subset=[STAGE_M, DISCHARGE_CMS])
     return working.copy()
 
 

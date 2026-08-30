@@ -26,7 +26,7 @@ def test_clean_and_validate_removes_bad_rows():
 
     assert "is_valid" in cleaned.columns
     assert cleaned["is_valid"].sum() == 2
-    assert cleaned[cleaned["is_valid"]]["Date"].dt.strftime("%Y-%m-%d").tolist() == ["2020-01-01", "2020-01-05"]
+    assert cleaned[cleaned["is_valid"]]["date"].dt.strftime("%Y-%m-%d").tolist() == ["2020-01-01", "2020-01-05"]
     assert cleaned["validation_notes"].notna().any()
 
 
