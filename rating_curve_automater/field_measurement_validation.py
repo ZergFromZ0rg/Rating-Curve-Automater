@@ -4,8 +4,23 @@ from pathlib import Path
 
 import pandas as pd
 
-from rating_curve_automater.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
-from rating_curve_automater.schema import DATE, DISCHARGE_CMS, NOTES, QUALITY, SITE, STAGE_M, TIME, ensure_canonical
+from rating_curve_automater.cleaning import (
+    clean_numeric_series,
+    clean_uncertainty_series,
+    coerce_datetime,
+    drop_footer_rows,
+)
+from rating_curve_automater.schema import (
+    DATE,
+    DISCHARGE_CMS,
+    DISCHARGE_UNCERTAINTY,
+    NOTES,
+    QUALITY,
+    SITE,
+    STAGE_M,
+    TIME,
+    ensure_canonical,
+)
 
 REJECT_QUALITY_VALUES = {"bad", "poor", "unreliable", "reject", "rejected"}
 #: An identical stage value repeated this many times (per site) is treated as a
@@ -72,6 +87,8 @@ def clean_and_validate_measurements(
     discharge_values, discharge_censored = clean_numeric_series(result[DISCHARGE_CMS])
     result[STAGE_M] = stage_values
     result[DISCHARGE_CMS] = discharge_values
+    if DISCHARGE_UNCERTAINTY in result.columns:
+        result[DISCHARGE_UNCERTAINTY] = clean_uncertainty_series(result[DISCHARGE_UNCERTAINTY])
 
     result["is_valid"] = True
     result["validation_notes"] = ""

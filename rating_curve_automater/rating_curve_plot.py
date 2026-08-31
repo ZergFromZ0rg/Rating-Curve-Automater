@@ -52,13 +52,30 @@ def make_rating_curve_figure(
     curve_stage = curve_stage[curve_stage > h0]
     if fit is not None and fit.get("is_segmented"):
         modeled = predict_discharge(fit, curve_stage)
-        label = f"Segmented (break H={fit['breakpoint']:.3f})"
+        bps = fit.get("breakpoints", [fit.get("breakpoint")])
+        label = f"{fit.get('n_segments', len(bps) + 1)} segments (breaks H={', '.join(f'{b:.3f}' for b in bps)})"
     else:
         modeled = a * np.power(curve_stage - h0, b)
         label = f"Q = {a:.3f}·(H−{h0:.3f})^{b:.3f}"
+    bands = fit.get("bands") if fit is not None else None
+    if bands:
+        gs = np.asarray(bands["stage"], dtype=float)
+        pct = int(round(bands["level"] * 100))
+        ax.fill_between(
+            gs, bands["pi_lower"], bands["pi_upper"],
+            color=MODEL_COLOR, alpha=0.10, linewidth=0,
+            label=f"{pct}% prediction", zorder=1,
+        )
+        ax.fill_between(
+            gs, bands["ci_lower"], bands["ci_upper"],
+            color=MODEL_COLOR, alpha=0.25, linewidth=0,
+            label=f"{pct}% confidence", zorder=1,
+        )
+
     ax.plot(curve_stage, modeled, color=MODEL_COLOR, linewidth=2, label=label, zorder=2)
     if fit is not None and fit.get("is_segmented"):
-        ax.axvline(fit["breakpoint"], color="#7f7f7f", linestyle="--", linewidth=1, zorder=1)
+        for bp in fit.get("breakpoints", [fit.get("breakpoint")]):
+            ax.axvline(bp, color="#7f7f7f", linestyle="--", linewidth=1, zorder=1)
 
     if log_scale:
         ax.set_xscale("log")
@@ -69,5 +86,49 @@ def make_rating_curve_figure(
     ax.set_title("Rating curve")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(fontsize=8)
+    fig.tight_layout()
+    return fig
+
+
+def make_residual_time_figure(df: pd.DataFrame, fit: dict, figure=None):
+    """Residual (%) of each gauging against its date, or ``None`` when the
+    gaugings carry no usable dates. A fitted time trend is drawn when
+    ``fit['drift']`` reports one."""
+    from matplotlib.figure import Figure
+
+    from rating_curve_automater.rating_curve_drift import OUT_LOG, OUT_PCT, build_residual_frame
+
+    working = select_valid_measurements(df)
+    frame = build_residual_frame(working, fit)
+    if frame is None:
+        return None
+
+    dates = pd.to_datetime(frame.attrs["dates"]).reset_index(drop=True)
+    resid = frame[OUT_PCT].to_numpy(dtype=float)
+    log_resid = frame[OUT_LOG].to_numpy(dtype=float)
+
+    fig = figure if figure is not None else Figure(figsize=(6.4, 3.0))
+    fig.clear()
+    ax = fig.add_subplot(111)
+
+    ax.axhline(0.0, color="#7f7f7f", linewidth=1, zorder=1)
+    ax.scatter(dates, resid, s=22, color=OBSERVED_COLOR, zorder=3)
+
+    drift = fit.get("drift") or {}
+    rate = drift.get("trend_pct_per_year")
+    if rate is not None:
+        t_years = (dates - dates.iloc[0]).dt.total_seconds().to_numpy() / (365.25 * 86400.0)
+        slope = float(np.log1p(rate / 100.0))
+        intercept = float(log_resid.mean() - slope * t_years.mean())
+        trend_pct = (np.exp(intercept + slope * t_years) - 1.0) * 100.0
+        ax.plot(dates, trend_pct, color=MODEL_COLOR, linewidth=1.8,
+                label=f"trend {rate:+.1f}%/yr", zorder=2)
+        ax.legend(fontsize=8)
+
+    ax.set_xlabel("Gauging date")
+    ax.set_ylabel("Observed − modelled (%)")
+    ax.set_title("Rating-curve residuals over time")
+    ax.grid(True, alpha=0.3)
+    fig.autofmt_xdate()
     fig.tight_layout()
     return fig

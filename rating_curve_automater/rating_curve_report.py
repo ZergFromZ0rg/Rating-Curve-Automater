@@ -8,7 +8,9 @@ import pandas as pd
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import PatternFill
 
+from rating_curve_automater.rating_curve_drift import assess_temporal_drift
 from rating_curve_automater.rating_curve_fitting import select_valid_measurements
+from rating_curve_automater.rating_table import DEFAULT_STAGE_STEP_M, build_rating_table
 from rating_curve_automater.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
 
 # Friendly column labels used in the exported workbook.
@@ -62,10 +64,17 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
     rows = []
     if fit.get("site"):
         rows.append({"Metric": "site", "Value": fit["site"]})
+    rows.append({
+        "Metric": "estimator",
+        "Value": "Bayesian (ratingcurve / PyMC)" if fit.get("method") == "bayesian" else "log-log least squares",
+    })
     rows.append({"Metric": "h0", "Value": fit["h0"]})
 
     if fit.get("is_segmented"):
-        rows.append({"Metric": "breakpoint stage (m)", "Value": fit["breakpoint"]})
+        breakpoints = fit.get("breakpoints", [fit.get("breakpoint")])
+        pick = f" (chosen by {fit.get('criterion', 'bic').upper()})" if fit.get("segment_selection") == "auto" else ""
+        rows.append({"Metric": "segments", "Value": f"{fit.get('n_segments', len(breakpoints) + 1)}{pick}"})
+        rows.append({"Metric": "breakpoint stage(s) (m)", "Value": ", ".join(f"{bp:.3f}" for bp in breakpoints)})
         for i, seg in enumerate(fit["segments"], start=1):
             rows.append({"Metric": f"segment {i} a", "Value": seg["a"]})
             rows.append({"Metric": f"segment {i} b", "Value": seg["b"]})
@@ -74,12 +83,56 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
         rows.append({"Metric": "a", "Value": fit["a"]})
         rows.append({"Metric": "b", "Value": fit["b"]})
 
+    if fit.get("uncertainty_source") == "column":
+        kind = "weighted least squares" if fit.get("weighted") else "uniform (no re-weighting)"
+        rows.append({"Metric": "discharge uncertainty", "Value": f"per-point column, {kind}"})
+        if fit.get("mean_uncertainty_pct") is not None:
+            rows.append({"Metric": "mean discharge uncertainty (%)", "Value": round(fit["mean_uncertainty_pct"], 2)})
+    elif fit.get("uncertainty_pct_default") is not None:
+        rows.append({"Metric": "discharge uncertainty", "Value": f"{fit['uncertainty_pct_default']:.1f}% assumed (no re-weighting)"})
+
     rows += [
         {"Metric": "R^2", "Value": fit["r_squared"]},
+    ]
+    if fit.get("weighted") and fit.get("r_squared_weighted") is not None:
+        rows.append({"Metric": "weighted R^2", "Value": fit["r_squared_weighted"]})
+
+    bands = fit.get("bands")
+    if bands:
+        pct = int(round(bands["level"] * 100))
+        if bands.get("b_ci"):
+            lo, hi = bands["b_ci"]
+            rows.append({"Metric": f"{pct}% CI on b", "Value": f"[{lo:.4f}, {hi:.4f}]"})
+        if bands.get("a_ci"):
+            lo, hi = bands["a_ci"]
+            rows.append({"Metric": f"{pct}% CI on a", "Value": f"[{lo:.4f}, {hi:.4f}]"})
+        rows.append({
+            "Metric": f"{pct}% confidence band half-width at median stage (%)",
+            "Value": round(bands["ci_halfwidth_pct_at_median"], 1),
+        })
+        if bands.get("kind") == "posterior":
+            rows.append({"Metric": "posterior draws", "Value": bands["n_success"]})
+        else:
+            rows.append({
+                "Metric": "bootstrap replicates (succeeded / requested)",
+                "Value": f"{bands['n_success']} / {bands['n_bootstrap']}",
+            })
+
+    rows += [
         {"Metric": "Valid points", "Value": len(table)},
         {"Metric": "Uncertain points", "Value": int((table["Uncertainty Flag"] == "Uncertain").sum())},
         {"Metric": "Normal points", "Value": int((table["Uncertainty Flag"] == "Normal").sum())},
     ]
+    drift = fit.get("drift")
+    if drift:
+        rows.append({"Metric": "temporal drift flag", "Value": drift["flag"]})
+        if drift.get("trend_pct_per_year") is not None:
+            rows.append({"Metric": "residual trend (%/yr)", "Value": round(drift["trend_pct_per_year"], 2)})
+            rows.append({"Metric": "residual trend p-value", "Value": round(drift["trend_p_value"], 3)})
+            rows.append({"Metric": f"recent {drift['recent_n']} gaugings mean offset (%)",
+                         "Value": round(drift["recent_mean_pct"], 1)})
+        rows.append({"Metric": "temporal drift note", "Value": drift["message"]})
+
     if not fit.get("is_plausible", True):
         rows.append({"Metric": "PLAUSIBILITY", "Value": "FAILED - see warnings"})
     for i, warning in enumerate(fit.get("warnings", []), start=1):
@@ -97,13 +150,15 @@ def export_rating_curve_report(
     r_squared: float | None = None,
     fit: dict | None = None,
     site: str | None = None,
+    rating_table_step: float = DEFAULT_STAGE_STEP_M,
 ) -> Path:
     """Write the multi-sheet Excel report.
 
     Pass ``fit`` (the dict from :func:`fit_rating_curve`) to render segmented
     curves and reuse its overall R²; otherwise a single power law ``a``/``b``/
     ``h0`` is used. ``site`` (or a single-valued site column in ``df``) is
-    recorded in the Summary sheet.
+    recorded in the Summary sheet. ``rating_table_step`` is the stage increment
+    (m) for the *Rating Table* sheet.
     """
     from rating_curve_automater.rating_curve_fitting import predict_discharge
 
@@ -130,11 +185,25 @@ def export_rating_curve_report(
         else:
             r_squared = 1.0
 
+    rating_fit = dict(fit) if fit is not None else {"a": a, "b": b, "h0": h0, "is_segmented": False}
+    rating_fit.setdefault("stage_min", float(table[OUT_STAGE].min()))
+    rating_fit.setdefault("stage_max", float(table[OUT_STAGE].max()))
+
+    drift = rating_fit.get("drift")
+    if drift is None:
+        drift = assess_temporal_drift(select_valid_measurements(df), rating_fit, random_state=0)
+
     fit_summary = dict(fit) if fit is not None else {"a": a, "b": b, "h0": h0}
     fit_summary["r_squared"] = r_squared
+    if drift is not None:
+        fit_summary["drift"] = drift
     if site:
         fit_summary["site"] = site
     summary = build_summary_table(fit_summary, table)
+    try:
+        rating_table = build_rating_table(rating_fit, step=rating_table_step)
+    except ValueError:
+        rating_table = None
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -142,6 +211,8 @@ def export_rating_curve_report(
         original_data.to_excel(writer, sheet_name="Original Data", index=False)
         table.to_excel(writer, sheet_name="Observed vs Modeled", index=False)
         summary.to_excel(writer, sheet_name="Summary", index=False)
+        if rating_table is not None and not rating_table.empty:
+            rating_table.to_excel(writer, sheet_name="Rating Table", index=False)
 
         plot_data = pd.DataFrame(
             {
@@ -207,24 +278,114 @@ def export_rating_curve_report(
             for col_idx in range(1, observed_ws.max_column + 1):
                 observed_ws.cell(row=row_idx, column=col_idx).fill = fill
 
+        bands = fit.get("bands") if fit is not None else None
+        if bands:
+            _write_band_sheet(writer, bands)
+
+        if drift and isinstance(drift.get("residuals"), pd.DataFrame) and not drift["residuals"].empty:
+            _write_residuals_over_time_sheet(writer, drift)
+
     return output
 
 
+def _write_residuals_over_time_sheet(writer, drift: dict) -> None:
+    """'Residuals Over Time' sheet: each gauging's percent difference from the
+    curve against its date, plus a chart."""
+    resid = drift["residuals"].copy()
+    resid.to_excel(writer, sheet_name="Residuals Over Time", index=False)
+    ws = writer.book["Residuals Over Time"]
+
+    pct_col = list(resid.columns).index("Residual (%)") + 1
+    chart = LineChart()
+    chart.title = f"Rating-curve residuals over time — drift flag: {drift['flag']}"
+    chart.x_axis.title = "Gauging date"
+    chart.y_axis.title = "Observed − modelled (%)"
+    chart.style = 13
+    chart.height = 9
+    chart.width = 18
+    chart.add_data(Reference(ws, min_col=pct_col, max_col=pct_col, min_row=1, max_row=ws.max_row),
+                   titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
+    s = chart.series[0]
+    s.graphicalProperties.line.noFill = True
+    s.marker.symbol = "circle"
+    s.marker.size = 6
+    s.marker.graphicalProperties.solidFill = "1F77B4"
+    ws.add_chart(chart, "J2")
+
+
+def _write_band_sheet(writer, bands: dict) -> None:
+    """Add a 'Rating Curve Band' sheet: dense stage grid with the fitted curve
+    and its confidence / prediction envelopes, plus a line chart."""
+    pct = int(round(bands["level"] * 100))
+    band_df = pd.DataFrame({
+        "Stage Above Bed (m)": np.asarray(bands["stage"], dtype=float),
+        "Modeled Q (m³/s)": np.asarray(bands["q"], dtype=float),
+        f"{pct}% confidence lower": np.asarray(bands["ci_lower"], dtype=float),
+        f"{pct}% confidence upper": np.asarray(bands["ci_upper"], dtype=float),
+        f"{pct}% prediction lower": np.asarray(bands["pi_lower"], dtype=float),
+        f"{pct}% prediction upper": np.asarray(bands["pi_upper"], dtype=float),
+    })
+    band_df.to_excel(writer, sheet_name="Rating Curve Band", index=False)
+
+    ws = writer.book["Rating Curve Band"]
+    chart = LineChart()
+    chart.title = f"Rating curve with {pct}% confidence / prediction bands"
+    chart.x_axis.title = "Stage Above Bed (m)"
+    chart.y_axis.title = "Discharge (m³/s)"
+    chart.style = 13
+    chart.legend.position = "r"
+    chart.height = 9
+    chart.width = 18
+    chart.y_axis.scaling.min = 0
+
+    for col in range(2, 7):
+        chart.add_data(Reference(ws, min_col=col, max_col=col, min_row=1, max_row=ws.max_row), titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
+
+    chart.series[0].graphicalProperties.line.solidFill = "D62728"
+    chart.series[0].graphicalProperties.line.width = 2.5
+    for i in (1, 2):
+        chart.series[i].graphicalProperties.line.solidFill = "1F77B4"
+    for i in (3, 4):
+        chart.series[i].graphicalProperties.line.solidFill = "9467BD"
+    ws.add_chart(chart, "H2")
+
+
 def main() -> None:
+    import argparse
+
     import pandas as pd
 
-    from rating_curve_automater.rating_curve_fitting import fit_rating_curve
+    from rating_curve_automater.rating_curve_fitting import DEFAULT_N_BOOTSTRAP, fit_rating_curve
+    from rating_curve_automater.rating_table import export_rating_table_csv
 
-    input_path = Path(__file__).resolve().parent.parent / "cleaned_measurements.csv"
-    output_path = Path(__file__).resolve().parent.parent / "rating_curve_report.xlsx"
+    parser = argparse.ArgumentParser(description="Fit a rating curve and write the Excel report.")
+    parser.add_argument("--csv", type=str, default="cleaned_measurements.csv",
+                        help="Cleaned measurements CSV (default: ./cleaned_measurements.csv).")
+    parser.add_argument("--output", type=str, default="rating_curve_report.xlsx",
+                        help="Excel report path (default: ./rating_curve_report.xlsx).")
+    parser.add_argument("--step", type=float, default=DEFAULT_STAGE_STEP_M, help="Rating-table stage increment (m).")
+    parser.add_argument("--rating-table-csv", type=str, default=None, help="Also write the stage-Q rating table to this CSV.")
+    parser.add_argument("--bootstrap", type=int, default=DEFAULT_N_BOOTSTRAP)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--segments", default="1")
+    parser.add_argument("--method", choices=("ols", "bayesian"), default="ols")
+    args = parser.parse_args()
 
-    df = pd.read_csv(input_path)
-    fit = fit_rating_curve(df)
+    df = pd.read_csv(args.csv)
+    segments = args.segments if args.segments.lower() == "auto" else int(args.segments)
+    fit = fit_rating_curve(df, segments=segments, method=args.method,
+                           n_bootstrap=args.bootstrap, random_state=args.seed)
     export_rating_curve_report(
-        df, output_path, a=fit["a"], b=fit["b"], h0=fit["h0"], r_squared=fit["r_squared"], fit=fit
+        df, args.output, a=fit["a"], b=fit["b"], h0=fit["h0"],
+        r_squared=fit["r_squared"], fit=fit, rating_table_step=args.step,
     )
+    print(f"Rating-curve report written to: {Path(args.output).name}")
 
-    print(f"Rating-curve report written to: {output_path.name}")
+    if args.rating_table_csv:
+        out = export_rating_table_csv(fit, args.rating_table_csv, step=args.step)
+        print(f"Rating table written to: {out.name}")
 
 
 if __name__ == "__main__":

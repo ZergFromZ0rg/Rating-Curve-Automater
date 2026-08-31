@@ -35,6 +35,16 @@ def test_resolve_columns_matches_varied_headers():
     assert mapping.fields["notes"] == "Remarks"
 
 
+def test_resolve_columns_separates_discharge_and_its_uncertainty():
+    mapping = resolve_columns(
+        ["Date", "Stage (m)", "Discharge (m3/s)", "Discharge uncertainty (%)"]
+    )
+    assert mapping.is_complete
+    assert mapping.fields[DISCHARGE_CMS] == "Discharge (m3/s)"
+    assert mapping.fields["discharge_uncertainty"] == "Discharge uncertainty (%)"
+    assert DISCHARGE_CMS not in mapping.ambiguous
+
+
 def test_resolve_columns_reports_unresolved_required():
     mapping = resolve_columns(["Date", "Air Temperature", "Turbidity"])
     assert not mapping.is_complete

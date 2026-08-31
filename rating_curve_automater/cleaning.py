@@ -93,6 +93,28 @@ def clean_numeric_series(series: pd.Series) -> tuple[pd.Series, pd.Series]:
     )
 
 
+def clean_uncertainty_series(series: pd.Series) -> pd.Series:
+    """Coerce a discharge-uncertainty column to a percentage.
+
+    Accepts ``"8%"``, ``"±0.08"``, ``8``, ``0.08`` etc. Values are read as
+    percentages unless the column clearly holds fractions (its median positive
+    value is <= 1), in which case it is scaled up by 100. Non-positive or
+    unparseable entries become ``NaN`` (the fitter falls back to the default
+    uncertainty for those rows).
+    """
+    stripped = series.map(
+        lambda v: re.sub(r"^\s*(±|\+/-|\+-)\s*", "", v) if isinstance(v, str) else v
+    )
+    values, _ = clean_numeric_series(stripped)
+    values = values.abs()
+    values[values <= 0] = np.nan
+
+    positive = values.dropna()
+    if not positive.empty and positive.median() <= 1.0:
+        values = values * 100.0
+    return values.round(4)
+
+
 def _looks_like_excel_serial(series: pd.Series) -> bool:
     numeric = pd.to_numeric(series, errors="coerce")
     if numeric.notna().mean() < 0.8:

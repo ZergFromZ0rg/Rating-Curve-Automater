@@ -15,8 +15,11 @@ import pandas as pd
 
 from rating_curve_automater.field_measurement_validation import clean_and_validate_measurements
 from rating_curve_automater.loader import LoadReport, load_measurements
-from rating_curve_automater.rating_curve_fitting import fit_rating_curve
+from rating_curve_automater.rating_curve_fitting import DEFAULT_DISCHARGE_UNCERTAINTY_PCT, fit_rating_curve
 from rating_curve_automater.rating_curve_report import export_rating_curve_report
+from rating_curve_automater.rating_curve_uncertainty import DEFAULT_N_BOOTSTRAP
+from rating_curve_automater.rating_table import DEFAULT_STAGE_STEP_M, build_rating_table
+from rating_curve_automater.rating_table import export_rating_table_csv as _write_rating_table_csv
 from rating_curve_automater.schema import DATE, DISCHARGE_CMS, FIELD_LABELS, SITE, STAGE_M
 
 DEFAULT_SHEET_NAME: str | None = None
@@ -76,17 +79,45 @@ class FitOutcome:
     def is_plausible(self) -> bool:
         return self.params.get("is_plausible", True)
 
+    @property
+    def bands(self) -> dict | None:
+        return self.params.get("bands")
+
+    @property
+    def drift(self) -> dict | None:
+        return self.params.get("drift")
+
     def summary_line(self) -> str:
         p = self.params
         source = "estimated" if p["h0_estimated"] else "user-specified"
         if p.get("is_segmented"):
-            head = f"Segmented at H = {p['breakpoint']:.3f} m  |  {p['equation']}"
+            bps = p.get("breakpoints", [p.get("breakpoint")])
+            head = (
+                f"{p.get('n_segments', len(bps) + 1)} segments, breaks at "
+                f"{', '.join(f'{b:.3f}' for b in bps)} m  |  {p['equation']}"
+            )
         else:
             head = f"Q = {p['a']:.6f} * (H - {p['h0']:.3f})^{p['b']:.6f}"
         prefix = f"[{self.site}] " if self.site else ""
-        line = f"{prefix}{head}  | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
+        estimator = "Bayesian" if p.get("method") == "bayesian" else "least squares"
+        line = f"{prefix}{head}  | {estimator} | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
+        if p.get("weighted"):
+            line += " | weighted by per-point uncertainty"
+        elif p.get("uncertainty_source") == "column":
+            line += " | per-point uncertainty (uniform)"
+        bands = p.get("bands")
+        if bands and bands.get("b_ci"):
+            lo, hi = bands["b_ci"]
+            pct = int(round(bands["level"] * 100))
+            line += f" | {pct}% CI b∈[{lo:.2f}, {hi:.2f}]"
+        elif bands:
+            pct = int(round(bands["level"] * 100))
+            line += f" | {pct}% band ±{bands['ci_halfwidth_pct_at_median']:.0f}% at median stage"
         if self.warnings:
             line = "⚠ " + line + "\n   " + "\n   ".join(self.warnings)
+        drift = p.get("drift")
+        if drift and drift["flag"] != "none":
+            line += f"\n   ⏳ {drift['message']}"
         return line
 
 
@@ -146,8 +177,12 @@ class RatingCurveWorkflow:
     def run_fit(
         self,
         h0: float | None = None,
-        segments: int = 1,
+        segments: int | str = 1,
         site: str | None = None,
+        discharge_uncertainty_pct: float = DEFAULT_DISCHARGE_UNCERTAINTY_PCT,
+        n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
+        random_state: int | None = 0,
+        method: str = "ols",
     ) -> FitOutcome:
         if self.cleaned_df is None:
             raise RuntimeError("Validate a dataset before fitting.")
@@ -160,7 +195,15 @@ class RatingCurveWorkflow:
             if fit_df.empty:
                 raise ValueError(f"No rows for site '{site}'.")
 
-        params = fit_rating_curve(fit_df, h0=h0, segments=segments)
+        params = fit_rating_curve(
+            fit_df,
+            h0=h0,
+            segments=segments,
+            discharge_uncertainty_pct=discharge_uncertainty_pct,
+            n_bootstrap=n_bootstrap,
+            random_state=random_state,
+            method=method,
+        )
         self.fit_df = fit_df
         self.fit_params = params
         self.selected_site = site
@@ -170,6 +213,7 @@ class RatingCurveWorkflow:
         self,
         output_path: str | Path,
         uncertainty_threshold: float = DEFAULT_UNCERTAINTY_THRESHOLD,
+        rating_table_step: float = DEFAULT_STAGE_STEP_M,
     ) -> Path:
         if self.fit_df is None or self.fit_params is None:
             raise RuntimeError("Complete validation and fitting before exporting.")
@@ -183,4 +227,32 @@ class RatingCurveWorkflow:
             r_squared=self.fit_params["r_squared"],
             fit=self.fit_params,
             site=self.selected_site,
+            rating_table_step=rating_table_step,
+        )
+
+    def rating_table(
+        self,
+        step: float = DEFAULT_STAGE_STEP_M,
+        stage_min: float | None = None,
+        stage_max: float | None = None,
+    ) -> pd.DataFrame:
+        """Stage → discharge lookup table for the current fit (see
+        :func:`rating_curve_automater.rating_table.build_rating_table`)."""
+        if self.fit_params is None:
+            raise RuntimeError("Fit a curve before building the rating table.")
+        return build_rating_table(
+            self.fit_params, step=step, stage_min=stage_min, stage_max=stage_max
+        )
+
+    def export_rating_table_csv(
+        self,
+        output_path: str | Path,
+        step: float = DEFAULT_STAGE_STEP_M,
+        stage_min: float | None = None,
+        stage_max: float | None = None,
+    ) -> Path:
+        if self.fit_params is None:
+            raise RuntimeError("Fit a curve before exporting the rating table.")
+        return _write_rating_table_csv(
+            self.fit_params, output_path, step=step, stage_min=stage_min, stage_max=stage_max
         )
