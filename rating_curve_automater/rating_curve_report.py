@@ -449,12 +449,29 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--segments", default="1")
     parser.add_argument("--method", choices=("ols", "bayesian"), default="ols")
+    parser.add_argument("--cross-section", type=str, default=None,
+                        help="Cross-section CSV (offset + elevation) for a Manning check → a 'Manning Check' sheet.")
+    parser.add_argument("--slope", type=float, default=None, help="Channel slope (m/m) — required with --cross-section.")
+    parser.add_argument("--mannings-n", type=float, default=None,
+                        help="Manning's n (default: calibrate it to the rating over the gauged range).")
+    parser.add_argument("--stage-offset", type=float, default=0.0,
+                        help="Add this to stage H to get water-surface elevation in the section's datum.")
     args = parser.parse_args()
+    if args.cross_section and args.slope is None:
+        raise SystemExit("--cross-section needs --slope (channel slope in m/m).")
 
     df = pd.read_csv(args.csv)
     segments = args.segments if args.segments.lower() == "auto" else int(args.segments)
     fit = fit_rating_curve(df, segments=segments, method=args.method,
                            n_bootstrap=args.bootstrap, random_state=args.seed)
+    if args.cross_section:
+        from rating_curve_automater.manning import manning_sanity_check, read_cross_section
+
+        offset, bed = read_cross_section(args.cross_section)
+        fit["manning"] = manning_sanity_check(
+            fit, offset, bed, args.slope, n=args.mannings_n, stage_offset=args.stage_offset,
+        )
+        print(f"Manning check [{fit['manning']['flag']}]: {fit['manning']['message']}")
     export_rating_curve_report(
         df, args.output, a=fit["a"], b=fit["b"], h0=fit["h0"],
         r_squared=fit["r_squared"], fit=fit, rating_table_step=args.step,
