@@ -115,9 +115,66 @@ def _to_timedelta(value: object) -> pd.Timedelta:
     return pd.Timedelta(hours=int(parsed.hour), minutes=int(parsed.minute), seconds=int(parsed.second))
 
 
+_RANGE_ISO = re.compile(r"^(\d{4}-\d{1,2}-\d{1,2})\s*/\s*\d{1,2}\s*$")
+_RANGE_DAYS = re.compile(r"^(\d{1,2})\s*[-/]\s*\d{1,2}\s+([A-Za-z].*)$")
+_RANGE_DASH = re.compile(r"\s[–—]\s")
+
+
+def _preprocess_date_token(value: object) -> object:
+    """Reduce a date-range string to its start date.
+
+    ``"2025-10-17/22"`` -> ``"2025-10-17"``; ``"17-22 Dec 2025"`` -> ``"17 Dec 2025"``;
+    ``"Dec 15 - Dec 18 2025"`` -> ``"Dec 15"``. Non-strings pass through.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    m = _RANGE_ISO.match(text)
+    if m:
+        return m.group(1)
+    m = _RANGE_DAYS.match(text)
+    if m:
+        return f"{m.group(1)} {m.group(2)}"
+    parts = _RANGE_DASH.split(text)
+    if len(parts) == 2 and any(ch.isdigit() for ch in parts[0]):
+        return parts[0].strip()
+    return text
+
+
+_DMY_TOKEN = re.compile(r"^\s*(\d{1,2})[/-](\d{1,2})[/-]\d{2,4}\s*$")
+
+
+def _has_dayfirst_evidence(series: pd.Series) -> bool:
+    """True when a slash/dash date column has a first field > 12 somewhere
+    (only valid as a day) and no clear month-first counter-evidence."""
+    dayfirst = monthfirst = 0
+    for value in series:
+        if not isinstance(value, str):
+            continue
+        m = _DMY_TOKEN.match(value)
+        if not m:
+            continue
+        first, second = int(m.group(1)), int(m.group(2))
+        if first > 12 >= second:
+            dayfirst += 1
+        elif second > 12 >= first:
+            monthfirst += 1
+    return dayfirst > 0 and dayfirst >= monthfirst
+
+
+def _parse_mixed(series: pd.Series, *, dayfirst: bool) -> pd.Series:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            return pd.to_datetime(series, errors="coerce", format="mixed", dayfirst=dayfirst)
+        except (ValueError, TypeError):
+            return pd.to_datetime(series, errors="coerce", dayfirst=dayfirst)
+
+
 def coerce_datetime(dates: pd.Series, times: pd.Series | None = None) -> pd.Series:
-    """Parse a date column (Excel serials, ambiguous day/month), optionally
-    adding a separate time column."""
+    """Parse a date column (Excel serials, ``DD-Mon-YY``, ambiguous day/month,
+    date ranges), optionally adding a separate time column."""
+    dates = dates if isinstance(dates, pd.Series) else pd.Series(dates)
     if _looks_like_excel_serial(dates):
         parsed = pd.to_datetime(
             pd.to_numeric(dates, errors="coerce"),
@@ -126,11 +183,13 @@ def coerce_datetime(dates: pd.Series, times: pd.Series | None = None) -> pd.Seri
             errors="coerce",
         )
     else:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            plain = pd.to_datetime(dates, errors="coerce")
-            dayfirst = pd.to_datetime(dates, errors="coerce", dayfirst=True)
-        parsed = dayfirst if dayfirst.notna().sum() > plain.notna().sum() else plain
+        pre = dates.map(_preprocess_date_token)
+        plain = _parse_mixed(pre, dayfirst=False)
+        dayfirst = _parse_mixed(pre, dayfirst=True)
+        if dayfirst.notna().sum() > plain.notna().sum() or _has_dayfirst_evidence(pre):
+            parsed = dayfirst
+        else:
+            parsed = plain
 
     if times is not None:
         offsets = pd.to_timedelta(

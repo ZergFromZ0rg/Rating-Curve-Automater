@@ -215,7 +215,13 @@ except Exception as exc:  # noqa: BLE001
     st.stop()
 
 p = outcome.params
-st.success(outcome.summary_line())
+if not outcome.is_plausible:
+    st.error("**This is not a plausible rating curve.**\n\n" + "\n".join(f"- {w}" for w in outcome.warnings))
+elif outcome.warnings:
+    st.warning("\n".join(f"- {w}" for w in outcome.warnings))
+else:
+    st.success(f"Fitted: {p['equation']}  |  R² = {p['r_squared']:.4f}")
+
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("a", f"{p['a']:.4f}")
 k2.metric("b", f"{p['b']:.4f}")

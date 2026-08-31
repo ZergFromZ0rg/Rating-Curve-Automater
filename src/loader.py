@@ -14,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
+from src.reshape import reshape_wide_stations
 from src.schema import (
     DATE,
     DISCHARGE_CMS,
@@ -46,6 +47,7 @@ class LoadReport:
     sheet_confident: bool = True
     header_confident: bool = True
     two_row_header: bool = False
+    preheader_notes: list[str] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
 
     @property
@@ -79,6 +81,9 @@ class LoadReport:
                 kind = "detected" if conv.detected else "assumed"
                 lines.append(f"  - {canonical}: {conv.label} ({kind})")
         lines.append(f"Data rows: {self.n_rows}")
+        if self.preheader_notes:
+            lines.append("Notes above the table (not used in the fit):")
+            lines += [f"  - {n}" for n in self.preheader_notes]
         lines += [f"! {m}" for m in self.messages]
         return "\n".join(lines)
 
@@ -87,6 +92,16 @@ def _read_sheet_raw(path: Path, sheet, is_csv: bool) -> pd.DataFrame:
     if is_csv:
         return pd.read_csv(path, header=None, dtype=object)
     return pd.read_excel(path, sheet_name=sheet, header=None, dtype=object)
+
+
+def _preheader_notes(raw: pd.DataFrame, header_row: int) -> list[str]:
+    """Text content of the rows above the detected header (survey block, title)."""
+    notes: list[str] = []
+    for i in range(min(header_row, len(raw))):
+        cells = [str(v).strip() for v in raw.iloc[i] if not pd.isna(v) and str(v).strip()]
+        if cells:
+            notes.append("  ".join(cells))
+    return notes
 
 
 def _looks_numeric(value: object) -> bool:
@@ -276,12 +291,25 @@ def load_measurements(
         if not header_confident:
             messages.append("Header row is a best guess - verify the column mapping below.")
 
+    preheader_notes = _preheader_notes(raw, resolved_header)
+
     df = _clean_frame(
         _reread_with_header(path, chosen_sheet, is_csv, resolved_header, two_row)
     )
     source_columns = list(df.columns)
 
-    mapping = resolve_columns(source_columns, overrides=column_overrides)
+    # --- wide multi-station layout -> long form with a 'site' column --------
+    unit_ref: dict[str, object] = {}
+    if column_overrides is None:
+        reshaped = reshape_wide_stations(df)
+        if reshaped is not None:
+            df, station_names, unit_ref = reshaped
+            messages.append(
+                f"Unpivoted a wide multi-station layout into a 'site' column: "
+                f"{', '.join(station_names)}."
+            )
+
+    mapping = resolve_columns(list(df.columns), overrides=column_overrides)
     for canonical, cols in mapping.ambiguous.items():
         messages.append(
             f"{canonical}: '{mapping.fields[canonical]}' chosen over {cols[1:]}."
@@ -304,9 +332,11 @@ def load_measurements(
             messages.append("Combined separate date and time columns.")
 
         # --- numeric: NA tokens, thousands sep, decimal comma, censored -
+        stage_hdr = unit_ref.get(STAGE_M, mapping.fields[STAGE_M])
+        disch_hdr = unit_ref.get(DISCHARGE_CMS, mapping.fields[DISCHARGE_CMS])
         for canonical, conv in (
-            (STAGE_M, detect_stage_unit(mapping.fields[STAGE_M])),
-            (DISCHARGE_CMS, detect_discharge_unit(mapping.fields[DISCHARGE_CMS])),
+            (STAGE_M, detect_stage_unit(stage_hdr)),
+            (DISCHARGE_CMS, detect_discharge_unit(disch_hdr)),
         ):
             units[canonical] = conv
             cleaned_col, censored = clean_numeric_series(canonical_df[canonical])
@@ -337,6 +367,7 @@ def load_measurements(
         sheet_confident=sheet_confident,
         header_confident=header_confident,
         two_row_header=two_row,
+        preheader_notes=preheader_notes,
         messages=messages,
     )
     return canonical_df, report

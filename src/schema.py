@@ -133,13 +133,16 @@ def reload_aliases(path: str | Path | None = None) -> None:
 
 _BRACKET_RE = re.compile(r"[\(\[\{].*?[\)\]\}]")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+_DEDUP_SUFFIX_RE = re.compile(r"(?<=[a-z])\.\d+$")  # pandas "Q.1" duplicate-name suffix
 
 
 def normalize_header(name: object) -> str:
-    """Lower-case, drop unit brackets and punctuation, collapse whitespace."""
+    """Lower-case, drop unit brackets, the pandas ``.1`` dedup suffix, and
+    punctuation; collapse whitespace."""
     if name is None or (isinstance(name, float) and pd.isna(name)):
         return ""
     text = str(name).strip().lower().replace("³", "3").replace("²", "2")
+    text = _DEDUP_SUFFIX_RE.sub("", text)
     text = _BRACKET_RE.sub(" ", text)
     text = _NON_ALNUM_RE.sub(" ", text)
     return " ".join(text.split())
@@ -167,6 +170,15 @@ def _alias_score(header_norm: str, alias: str) -> int:
 
     overlap = len(set(alias_tokens) & set(header_tokens)) / len(alias_tokens)
     return int(45 * overlap) if overlap >= 0.75 else 0
+
+
+def field_scores_for(column: object) -> dict[str, int]:
+    """Best alias score of ``column`` against each canonical field (0-100)."""
+    norm = normalize_header(column)
+    return {
+        canonical: max((_alias_score(norm, alias) for alias in FIELD_ALIASES[canonical]), default=0)
+        for canonical in ALL_FIELDS
+    }
 
 
 def _field_candidates(

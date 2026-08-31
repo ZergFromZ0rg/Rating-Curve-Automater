@@ -80,6 +80,10 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
         {"Metric": "Uncertain points", "Value": int((table["Uncertainty Flag"] == "Uncertain").sum())},
         {"Metric": "Normal points", "Value": int((table["Uncertainty Flag"] == "Normal").sum())},
     ]
+    if not fit.get("is_plausible", True):
+        rows.append({"Metric": "PLAUSIBILITY", "Value": "FAILED - see warnings"})
+    for i, warning in enumerate(fit.get("warnings", []), start=1):
+        rows.append({"Metric": f"warning {i}", "Value": warning})
     return pd.DataFrame(rows)
 
 

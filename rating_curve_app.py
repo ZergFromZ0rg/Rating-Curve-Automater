@@ -320,6 +320,10 @@ class RatingCurveApp:
         self._draw_preview()
         self.show_page("export")
 
+        if outcome.warnings:
+            title = "Not a plausible rating curve" if not outcome.is_plausible else "Fit warnings"
+            messagebox.showwarning(title, "\n".join(f"- {w}" for w in outcome.warnings))
+
     def _draw_preview(self):
         params = self.workflow.fit_params
         preview_df = self.workflow.fit_df

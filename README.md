@@ -84,23 +84,32 @@ and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
 - **Units** – read from the header (`(ft)`, `(cfs)`, `(cm)`, `ML/d`, …) and
   converted to SI (metres, m³/s). If no unit is found, SI is assumed and the
   report says so.
+- **Wide multi-station layouts** – repeated `stage` + `discharge` column blocks
+  (e.g. `SW1 readings | Stage above bed, m | Q, cms | SW2 readings | …`) are
+  detected and unpivoted into a `site` column.
 - **Messy values** – `"N/A"` / `"--"` placeholders become blanks; thousands
   separators and decimal commas are handled; censored values (`"<0.001"`) are
   taken at face value and flagged; `Total` / `Average` footer rows are dropped.
-- **Dates** – Excel serial numbers, ambiguous day/month order, and a separate
-  `Time` column (merged into the date) are all handled.
+- **Dates** – Excel serial numbers, `DD-Mon-YY`, ambiguous day/month order,
+  date ranges (`2025-10-17/22` → start date), and a separate `Time` column
+  (merged into the date) are all handled.
 - **Multiple sites** – a `Site` column is carried through; fit one site at a
   time (`workflow.run_fit(site=…)`, `--site`, or the GUI picker).
+- **Placeholder stages** – an identical stage value repeated ≥ 3 times per site
+  (a common "gauge lost / out of range" fill) is flagged invalid.
 - **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`
   forces a mapping when detection is wrong.
+- **Survey block** – free-text rows above the table (T-post / bed elevations,
+  titles) are captured on `LoadReport.preheader_notes` for reference.
 
 Every choice is recorded on the returned `LoadReport` (and shown in the GUI),
 including `sheet_confident` / `header_confident` flags and a `needs_review`
 property.
 
 A row is flagged **invalid** when the date is unparseable, stage is missing or
-≤ 0, discharge is missing or negative, or `Quality` reads bad/poor/unreliable/
-rejected. Invalid rows are excluded from the fit and the report.
+≤ 0, discharge is missing or negative, `Quality` reads bad/poor/unreliable/
+rejected, or its stage value repeats ≥ 3 times for the site. Invalid rows are
+excluded from the fit and the report.
 
 A valid row is additionally flagged with a **warning** when `Quality` reads
 fair/questionable/estimated/provisional or a field note mentions backwater,
@@ -118,6 +127,12 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
   segments. `predict_discharge(fit, stage)` evaluates either model kind.
 - The fit and the report operate on the same valid-row set
   (`select_valid_measurements`), and the report reuses the fit's R².
+- **Plausibility check** – every fit is assessed (`assess_fit`). A **critical**
+  warning (exponent `b ≤ 0`, or stage and discharge essentially uncorrelated)
+  means the data is not a rating curve at all; **non-critical** warnings cover a
+  low R² or fewer than 5 points. Warnings show in both GUIs and the report's
+  Summary sheet; `fit_rating_curve(..., strict=True)` / `--strict` raises
+  `ImplausibleRatingCurve` on a critical warning.
 
 ## Project layout
 
@@ -130,6 +145,7 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 | `src/schema.py` | Canonical column schema + header resolution (aliases from `config/column_aliases.yaml`) |
 | `src/units.py` | Stage/discharge unit detection and SI conversion |
 | `src/cleaning.py` | Messy-value coercion, footer-row drop, date/time parsing |
+| `src/reshape.py` | Detect + unpivot wide multi-station layouts |
 | `src/loader.py` | `load_measurements()` — sheet/header/column/unit detection + `LoadReport` |
 | `src/field_measurement_validation.py` | Validation, warning tier |
 | `src/rating_curve_fitting.py` | `h0` estimation and power-law fit |

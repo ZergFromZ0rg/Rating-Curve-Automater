@@ -59,6 +59,15 @@ def test_coerce_datetime_dayfirst_heuristic():
     assert parsed.dt.month.tolist() == [12, 6, 2]
 
 
+def test_coerce_datetime_dd_mon_yy_and_ranges():
+    parsed = coerce_datetime(pd.Series([
+        "2025-10-17/22", "15-Dec-25", "6-Mar-26", "26-May-26",
+    ]))
+    assert parsed.dt.year.tolist() == [2025, 2025, 2026, 2026]
+    assert parsed.dt.month.tolist() == [10, 12, 3, 5]
+    assert parsed.iloc[0].day == 17  # start of the range
+
+
 def test_coerce_datetime_combines_separate_time_column():
     parsed = coerce_datetime(
         pd.Series(["2021-03-01", "2021-03-02"]),
