@@ -3,7 +3,7 @@ import textwrap
 import pandas as pd
 import pytest
 
-from src.schema import (
+from rating_curve_automater.schema import (
     BUILTIN_ALIASES,
     DATE,
     DISCHARGE_CMS,

@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.schema import DATE, DISCHARGE_CMS, STAGE_M
-from src.loader import load_measurements
-from src.workflow import RatingCurveWorkflow
+from rating_curve_automater.schema import DATE, DISCHARGE_CMS, STAGE_M
+from rating_curve_automater.loader import load_measurements
+from rating_curve_automater.workflow import RatingCurveWorkflow
 
 
 def _write(path, frames: dict[str, pd.DataFrame], startrow: dict[str, int] | None = None):

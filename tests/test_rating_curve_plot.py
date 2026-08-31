@@ -5,7 +5,7 @@ matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
 
-from src.rating_curve_plot import make_rating_curve_figure
+from rating_curve_automater.rating_curve_plot import make_rating_curve_figure
 
 
 def _frame():

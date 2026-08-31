@@ -13,7 +13,7 @@ import re
 
 import pandas as pd
 
-from src.schema import (
+from rating_curve_automater.schema import (
     DATE,
     DISCHARGE_CMS,
     SITE,

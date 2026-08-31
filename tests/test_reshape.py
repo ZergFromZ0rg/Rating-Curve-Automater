@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from src.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
-from src.loader import load_measurements
-from src.reshape import detect_wide_blocks, reshape_wide_stations
+from rating_curve_automater.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
+from rating_curve_automater.loader import load_measurements
+from rating_curve_automater.reshape import detect_wide_blocks, reshape_wide_stations
 
 
 def _wide_frame():

@@ -14,15 +14,21 @@ formatted Excel report with an embedded rating-curve chart.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+
+pip install -e .              # library + `rca` command line
+pip install -e ".[app]"       # + the Streamlit web UI
+pip install -e ".[app,dev]"   # + pytest   (same as: pip install -r requirements.txt)
 ```
+
+Needs Python ≥ 3.10. No open-source licence is set yet: all rights reserved,
+contact the author for reuse terms.
 
 ## Usage
 
 ### Web UI (recommended)
 
 ```bash
-streamlit run app.py
+rca app          # or: streamlit run app.py
 ```
 
 Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the page:
@@ -34,38 +40,33 @@ Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the p
 5. **Fit** – site picker (if the workbook has a `Site` column), `h0` (estimate or enter), 1 or 2 segments, uncertainty threshold; shows `a` / `b` / `h0` / R² and a rating-curve plot (log-log toggle).
 6. **Export** – download the multi-sheet Excel report.
 
-### Desktop GUI (Tkinter)
-
-```bash
-python3 rating_curve_app.py
-```
-
-Same workflow as a three-page wizard. Both front ends are thin views over `src/workflow.py`.
+The web UI and the CLI are thin views over `rating_curve_automater/workflow.py`.
 
 ### Command line
 
+`rca <command> --help` shows each command's full options.
+
 ```bash
 # Clean/validate any workbook to a CSV (sheet auto-detected unless named)
-python3 -m src.field_measurement_validation path/to/data.xlsx --output-csv cleaned_measurements.csv
+rca validate path/to/data.xlsx --output-csv cleaned_measurements.csv
 
-# Clean the bundled 10-year practice dataset (either form)
-python3 -m src.field_measurement_validation --default-dataset
-python3 process_field_measurements.py
+# Clean the bundled 10-year practice dataset
+rca validate --default-dataset
 
 # Fit the curve from a cleaned CSV (single or piecewise; optional site filter)
-python3 -m src.rating_curve_fitting
-python3 -m src.rating_curve_fitting --segments 2 --h0 0.18
-python3 -m src.rating_curve_fitting --site "Upper Reach"
+rca fit
+rca fit --segments 2 --h0 0.18
+rca fit --site "Upper Reach"
 
 # Fit + write the Excel report
-python3 -m src.rating_curve_report
+rca report
 ```
 
 ## Input format
 
 The tool accepts `.xlsx`, `.xls` and `.csv`. It needs a **date**, a **stage**
 and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
-`src/loader.load_measurements()` handles the variability:
+`rating_curve_automater/loader.load_measurements()` handles the variability:
 
 - **Sheet** – if not named, each sheet is scored by how many required fields its
   header resolves and how numeric the data beneath it is; the best is chosen. If
@@ -130,7 +131,7 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 - **Plausibility check** – every fit is assessed (`assess_fit`). A **critical**
   warning (exponent `b ≤ 0`, or stage and discharge essentially uncorrelated)
   means the data is not a rating curve at all; **non-critical** warnings cover a
-  low R² or fewer than 5 points. Warnings show in both GUIs and the report's
+  low R² or fewer than 5 points. Warnings show in the web UI and the report's
   Summary sheet; `fit_rating_curve(..., strict=True)` / `--strict` raises
   `ImplausibleRatingCurve` on a critical warning.
 
@@ -138,21 +139,21 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 
 | Path | Purpose |
 |---|---|
-| `app.py` | Streamlit web UI (thin view over `src/workflow.py`) |
-| `rating_curve_app.py` | Tkinter desktop GUI (thin view over `src/workflow.py`) |
-| `process_field_measurements.py` | Batch-clean the bundled dataset |
-| `src/workflow.py` | Headless load → validate → fit → export controller |
-| `src/schema.py` | Canonical column schema + header resolution (aliases from `config/column_aliases.yaml`) |
-| `src/units.py` | Stage/discharge unit detection and SI conversion |
-| `src/cleaning.py` | Messy-value coercion, footer-row drop, date/time parsing |
-| `src/reshape.py` | Detect + unpivot wide multi-station layouts |
-| `src/loader.py` | `load_measurements()` — sheet/header/column/unit detection + `LoadReport` |
-| `src/field_measurement_validation.py` | Validation, warning tier |
-| `src/rating_curve_fitting.py` | `h0` estimation and power-law fit |
-| `src/rating_curve_report.py` | Excel report + chart |
-| `src/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |
+| `pyproject.toml` | Package metadata, deps, the `rca` entry point |
+| `app.py` | Streamlit web UI (thin view over `rating_curve_automater/workflow.py`) |
+| `rating_curve_automater/cli.py` | `rca` — unified command-line entry point |
+| `rating_curve_automater/workflow.py` | Headless load → validate → fit → export controller |
+| `rating_curve_automater/schema.py` | Canonical column schema + header resolution (aliases from `config/column_aliases.yaml`) |
+| `rating_curve_automater/units.py` | Stage/discharge unit detection and SI conversion |
+| `rating_curve_automater/cleaning.py` | Messy-value coercion, footer-row drop, date/time parsing |
+| `rating_curve_automater/reshape.py` | Detect + unpivot wide multi-station layouts |
+| `rating_curve_automater/loader.py` | `load_measurements()` — sheet/header/column/unit detection + `LoadReport` |
+| `rating_curve_automater/field_measurement_validation.py` | Validation, warning tier |
+| `rating_curve_automater/rating_curve_fitting.py` | `h0` estimation and power-law fit |
+| `rating_curve_automater/rating_curve_report.py` | Excel report + chart |
+| `rating_curve_automater/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |
+| `rating_curve_automater/data/` | Bundled synthetic practice dataset (`rca validate --default-dataset`) |
 | `tests/` | pytest suite |
-| `10_year_single_site_rating_curve_data.xlsx` | Synthetic practice dataset |
 
 ## Tests
 

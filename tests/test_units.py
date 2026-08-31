@@ -1,4 +1,4 @@
-from src.units import detect_discharge_unit, detect_stage_unit
+from rating_curve_automater.units import detect_discharge_unit, detect_stage_unit
 
 
 def test_detect_stage_units():

@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
-from src.reshape import reshape_wide_stations
-from src.schema import (
+from rating_curve_automater.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
+from rating_curve_automater.reshape import reshape_wide_stations
+from rating_curve_automater.schema import (
     DATE,
     DISCHARGE_CMS,
     NOTES,
@@ -27,7 +27,7 @@ from src.schema import (
     apply_mapping,
     resolve_columns,
 )
-from src.units import UnitConversion, detect_discharge_unit, detect_stage_unit
+from rating_curve_automater.units import UnitConversion, detect_discharge_unit, detect_stage_unit
 
 MAX_HEADER_SCAN = 15
 SAMPLE_ROWS = 5

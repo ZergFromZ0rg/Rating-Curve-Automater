@@ -3,9 +3,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.workflow import RatingCurveWorkflow
+from rating_curve_automater.workflow import RatingCurveWorkflow
 
-DATASET = Path(__file__).resolve().parents[1] / "10_year_single_site_rating_curve_data.xlsx"
+DATASET = Path(__file__).resolve().parents[1] / "rating_curve_automater" / "data" / "10_year_single_site_rating_curve_data.xlsx"
 
 
 @pytest.fixture

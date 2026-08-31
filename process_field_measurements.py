@@ -1,13 +1,12 @@
-"""Convenience wrapper: clean/validate the bundled 10-year practice dataset.
+"""Convenience wrapper: clean/validate the bundled 10-year practice dataset,
+writing ``cleaned_measurements.csv`` next to this file.
 
-Equivalent to::
-
-    python3 -m src.field_measurement_validation --default-dataset
+Equivalent to ``rca validate --default-dataset --output-csv cleaned_measurements.csv``.
 """
 
 from pathlib import Path
 
-from src.field_measurement_validation import (
+from rating_curve_automater.field_measurement_validation import (
     DEFAULT_DATASET,
     DEFAULT_DATASET_SHEET,
     clean_measurements_to_csv,

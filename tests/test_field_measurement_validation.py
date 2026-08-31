@@ -5,7 +5,7 @@ import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from src.field_measurement_validation import (
+from rating_curve_automater.field_measurement_validation import (
     clean_and_validate_measurements,
     clean_measurements_to_csv,
 )

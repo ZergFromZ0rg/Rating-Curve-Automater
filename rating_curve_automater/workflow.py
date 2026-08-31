@@ -1,9 +1,9 @@
 """Headless controller for the rating-curve workflow.
 
 All of the load -> validate -> fit -> export logic lives here as plain
-functions/methods that return data, with no Tkinter involved, so the workflow
-can be exercised directly in tests. ``rating_curve_app.py`` is a thin view on
-top of :class:`RatingCurveWorkflow`.
+functions/methods that return data, with no UI involved, so the workflow can be
+exercised directly in tests. ``app.py`` (Streamlit) is a thin view on top of
+:class:`RatingCurveWorkflow`.
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.field_measurement_validation import clean_and_validate_measurements
-from src.loader import LoadReport, load_measurements
-from src.rating_curve_fitting import fit_rating_curve
-from src.rating_curve_report import export_rating_curve_report
-from src.schema import DATE, DISCHARGE_CMS, FIELD_LABELS, SITE, STAGE_M
+from rating_curve_automater.field_measurement_validation import clean_and_validate_measurements
+from rating_curve_automater.loader import LoadReport, load_measurements
+from rating_curve_automater.rating_curve_fitting import fit_rating_curve
+from rating_curve_automater.rating_curve_report import export_rating_curve_report
+from rating_curve_automater.schema import DATE, DISCHARGE_CMS, FIELD_LABELS, SITE, STAGE_M
 
 DEFAULT_SHEET_NAME: str | None = None
 DEFAULT_UNCERTAINTY_THRESHOLD = 0.25
