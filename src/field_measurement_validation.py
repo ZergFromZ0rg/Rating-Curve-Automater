@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.schema import DATE, DISCHARGE_CMS, NOTES, QUALITY, STAGE_M, ensure_canonical
+from src.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
+from src.schema import DATE, DISCHARGE_CMS, NOTES, QUALITY, SITE, STAGE_M, TIME, ensure_canonical
 
 REJECT_QUALITY_VALUES = {"bad", "poor", "unreliable", "reject", "rejected"}
 WARN_QUALITY_VALUES = {"fair", "questionable", "estimated", "provisional"}
@@ -42,9 +43,20 @@ def clean_and_validate_measurements(
     has_quality = QUALITY in result.columns
     has_notes = NOTES in result.columns
 
-    result[DATE] = pd.to_datetime(result[DATE], errors="coerce")
-    result[STAGE_M] = pd.to_numeric(result[STAGE_M], errors="coerce")
-    result[DISCHARGE_CMS] = pd.to_numeric(result[DISCHARGE_CMS], errors="coerce")
+    # Safety net for callers that bypass load_measurements(): drop footer rows
+    # and coerce messy values here too. All of this is idempotent on data that
+    # the loader already cleaned.
+    result, _ = drop_footer_rows(result, [DATE, SITE, NOTES])
+
+    time_series = result[TIME] if TIME in result.columns else None
+    result[DATE] = coerce_datetime(result[DATE], time_series)
+    if time_series is not None:
+        result = result.drop(columns=[TIME])
+
+    stage_values, _ = clean_numeric_series(result[STAGE_M])
+    discharge_values, discharge_censored = clean_numeric_series(result[DISCHARGE_CMS])
+    result[STAGE_M] = stage_values
+    result[DISCHARGE_CMS] = discharge_values
 
     result["is_valid"] = True
     result["validation_notes"] = ""
@@ -86,6 +98,8 @@ def clean_and_validate_measurements(
             note_text = str(row[NOTES]).strip()
             if any(keyword in note_text.lower() for keyword in WARN_NOTE_KEYWORDS):
                 reasons.append(f"field note: {note_text}")
+        if bool(discharge_censored.get(row.name, False)):
+            reasons.append("censored discharge value taken at face value")
         return "; ".join(reasons)
 
     result["validation_notes"] = result.apply(note_for_row, axis=1)

@@ -8,8 +8,11 @@ overrides), and :func:`apply_mapping` renames a frame accordingly.
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
@@ -17,6 +20,7 @@ import pandas as pd
 # --- Canonical column names -------------------------------------------------
 
 DATE = "date"
+TIME = "time"
 STAGE_M = "stage_m"
 DISCHARGE_CMS = "discharge_cms"
 QUALITY = "quality"
@@ -24,12 +28,14 @@ NOTES = "notes"
 SITE = "site"
 
 REQUIRED_FIELDS: tuple[str, ...] = (DATE, STAGE_M, DISCHARGE_CMS)
-OPTIONAL_FIELDS: tuple[str, ...] = (QUALITY, NOTES, SITE)
+OPTIONAL_FIELDS: tuple[str, ...] = (QUALITY, NOTES, SITE, TIME)
+# DATE is resolved before TIME so a "Date/Time" column is claimed as the date.
 ALL_FIELDS: tuple[str, ...] = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
 #: Friendly labels for messages, plots and report headings.
 FIELD_LABELS: dict[str, str] = {
     DATE: "Date",
+    TIME: "Time",
     STAGE_M: "Stage (m)",
     DISCHARGE_CMS: "Discharge (m³/s)",
     QUALITY: "Quality",
@@ -37,12 +43,18 @@ FIELD_LABELS: dict[str, str] = {
     SITE: "Site",
 }
 
-#: Header aliases per canonical field (matched against a normalised header).
-FIELD_ALIASES: dict[str, list[str]] = {
+#: Built-in header aliases per canonical field (matched against a normalised
+#: header). Users extend these via ``config/column_aliases.yaml`` -- see
+#: :func:`load_alias_config`.
+BUILTIN_ALIASES: dict[str, list[str]] = {
     DATE: [
         "date", "datetime", "date time", "timestamp", "time stamp",
         "measurement date", "measured date", "obs date", "observation date",
         "sample date", "survey date", "gauging date", "day",
+    ],
+    TIME: [
+        "time", "time of day", "obs time", "observation time", "sample time",
+        "reading time", "gauging time", "clock",
     ],
     STAGE_M: [
         "stage", "stage above bed", "stage height", "stage m", "river stage",
@@ -70,7 +82,54 @@ FIELD_ALIASES: dict[str, list[str]] = {
     ],
 }
 
-_SHORT_ALIASES = {a for aliases in FIELD_ALIASES.values() for a in aliases if len(a) <= 2}
+_DEFAULT_CONFIG_PATHS = (
+    os.environ.get("RATING_CURVE_ALIASES"),
+    str(Path.home() / ".rating_curve_automater" / "column_aliases.yaml"),
+    str(Path(__file__).resolve().parent.parent / "config" / "column_aliases.yaml"),
+)
+
+
+def load_alias_config(path: str | Path | None = None) -> dict[str, list[str]]:
+    """Return the alias table: built-ins merged with a user YAML file.
+
+    The file maps canonical field names to *extra* alias phrases, e.g.::
+
+        stage_m: [gauge board, staff plate]
+        discharge_cms: [q gauged]
+
+    A missing or malformed file falls back to the built-ins.
+    """
+    merged = {field_name: list(aliases) for field_name, aliases in BUILTIN_ALIASES.items()}
+
+    candidates = [path] if path is not None else _DEFAULT_CONFIG_PATHS
+    config_path = next((Path(p) for p in candidates if p and Path(p).is_file()), None)
+    if config_path is None:
+        return merged
+
+    try:
+        import yaml
+
+        raw = yaml.safe_load(config_path.read_text()) or {}
+        if not isinstance(raw, dict):
+            raise ValueError("top level must be a mapping of field -> alias list")
+        for field_name, extra in raw.items():
+            if field_name not in merged:
+                continue
+            extra_list = [str(a).strip() for a in (extra or []) if str(a).strip()]
+            merged[field_name] = list(dict.fromkeys(merged[field_name] + extra_list))
+    except Exception as exc:  # noqa: BLE001 - config errors must not crash loading
+        print(f"[schema] ignoring alias config {config_path}: {exc}", file=sys.stderr)
+
+    return merged
+
+
+#: Active alias table. Call :func:`reload_aliases` after editing the config.
+FIELD_ALIASES: dict[str, list[str]] = load_alias_config()
+
+
+def reload_aliases(path: str | Path | None = None) -> None:
+    FIELD_ALIASES.clear()
+    FIELD_ALIASES.update(load_alias_config(path))
 
 _BRACKET_RE = re.compile(r"[\(\[\{].*?[\)\]\}]")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")

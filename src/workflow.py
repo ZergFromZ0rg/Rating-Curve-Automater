@@ -17,7 +17,7 @@ from src.field_measurement_validation import clean_and_validate_measurements
 from src.loader import LoadReport, load_measurements
 from src.rating_curve_fitting import fit_rating_curve
 from src.rating_curve_report import export_rating_curve_report
-from src.schema import DATE, DISCHARGE_CMS, FIELD_LABELS, STAGE_M
+from src.schema import DATE, DISCHARGE_CMS, FIELD_LABELS, SITE, STAGE_M
 
 DEFAULT_SHEET_NAME: str | None = None
 DEFAULT_UNCERTAINTY_THRESHOLD = 0.25
@@ -44,12 +44,17 @@ class ValidationResult:
     invalid_count: int
     warning_count: int
     load_report: LoadReport | None = None
+    sites: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     @property
     def has_blocking_issues(self) -> bool:
         return self.invalid_count > 0
+
+    @property
+    def is_multi_site(self) -> bool:
+        return len(self.sites) > 1
 
     def summary_line(self) -> str:
         return (
@@ -61,6 +66,7 @@ class ValidationResult:
 @dataclass
 class FitOutcome:
     params: dict
+    site: str | None = None
 
     def summary_line(self) -> str:
         p = self.params
@@ -69,13 +75,24 @@ class FitOutcome:
             head = f"Segmented at H = {p['breakpoint']:.3f} m  |  {p['equation']}"
         else:
             head = f"Q = {p['a']:.6f} * (H - {p['h0']:.3f})^{p['b']:.6f}"
-        return f"{head}  | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
+        prefix = f"[{self.site}] " if self.site else ""
+        return f"{prefix}{head}  | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
+
+
+def _sites_in(df: pd.DataFrame) -> list[str]:
+    if SITE not in df.columns:
+        return []
+    values = df.loc[df["is_valid"], SITE].dropna().astype(str).str.strip()
+    values = values[values != ""]
+    return sorted(values.unique().tolist())
 
 
 class RatingCurveWorkflow:
     def __init__(self) -> None:
         self.cleaned_df: pd.DataFrame | None = None
+        self.fit_df: pd.DataFrame | None = None
         self.fit_params: dict | None = None
+        self.selected_site: str | None = None
 
     def load_and_validate(
         self,
@@ -97,7 +114,9 @@ class RatingCurveWorkflow:
             )
         cleaned = clean_and_validate_measurements(canonical)
         self.cleaned_df = cleaned
+        self.fit_df = None
         self.fit_params = None
+        self.selected_site = None
 
         invalid_rows = cleaned.loc[~cleaned["is_valid"]]
         warning_rows = cleaned.loc[cleaned["has_warning"]]
@@ -108,26 +127,43 @@ class RatingCurveWorkflow:
             invalid_count=int((~cleaned["is_valid"]).sum()),
             warning_count=int(cleaned["has_warning"].sum()),
             load_report=report,
+            sites=_sites_in(cleaned),
             flags=_describe_rows(invalid_rows, "validation_notes"),
             warnings=_describe_rows(warning_rows, "warning_notes"),
         )
 
-    def run_fit(self, h0: float | None = None, segments: int = 1) -> FitOutcome:
+    def run_fit(
+        self,
+        h0: float | None = None,
+        segments: int = 1,
+        site: str | None = None,
+    ) -> FitOutcome:
         if self.cleaned_df is None:
             raise RuntimeError("Validate a dataset before fitting.")
-        params = fit_rating_curve(self.cleaned_df, h0=h0, segments=segments)
+
+        fit_df = self.cleaned_df
+        if site is not None:
+            if SITE not in fit_df.columns:
+                raise ValueError("The dataset has no site column to filter on.")
+            fit_df = fit_df[fit_df[SITE].astype(str).str.strip() == site]
+            if fit_df.empty:
+                raise ValueError(f"No rows for site '{site}'.")
+
+        params = fit_rating_curve(fit_df, h0=h0, segments=segments)
+        self.fit_df = fit_df
         self.fit_params = params
-        return FitOutcome(params=params)
+        self.selected_site = site
+        return FitOutcome(params=params, site=site)
 
     def export_report(
         self,
         output_path: str | Path,
         uncertainty_threshold: float = DEFAULT_UNCERTAINTY_THRESHOLD,
     ) -> Path:
-        if self.cleaned_df is None or self.fit_params is None:
+        if self.fit_df is None or self.fit_params is None:
             raise RuntimeError("Complete validation and fitting before exporting.")
         return export_rating_curve_report(
-            self.cleaned_df,
+            self.fit_df,
             output_path,
             a=self.fit_params["a"],
             b=self.fit_params["b"],
@@ -135,4 +171,5 @@ class RatingCurveWorkflow:
             uncertainty_threshold=uncertainty_threshold,
             r_squared=self.fit_params["r_squared"],
             fit=self.fit_params,
+            site=self.selected_site,
         )

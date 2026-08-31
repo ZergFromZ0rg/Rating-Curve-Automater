@@ -28,7 +28,7 @@ python3 rating_curve_app.py
 Three-step wizard:
 
 1. **Input Dataset** – browse to an `.xlsx` / `.xls` / `.csv` file; leave *Sheet name* and *Header row* blank to auto-detect (or set them), then *Upload and Validate*. The status panel shows which sheet, header row, column mapping and units were used; if the loader isn't confident you get a warning prompting you to set them explicitly.
-2. **Validation & Flags** – review valid / invalid / warning counts and the per-row flag list (`INVALID` rows are excluded from the fit, `WARNING` rows are kept). Optionally enter `h0` (stage of zero flow); leave blank to estimate it from the data. Choose 1 segment (single power law) or 2 (piecewise, auto breakpoint). Continue to run the regression.
+2. **Validation & Flags** – review valid / invalid / warning counts and the per-row flag list (`INVALID` rows are excluded from the fit, `WARNING` rows are kept). Optionally enter `h0` (stage of zero flow; blank = estimate). If the workbook has a `Site` column, pick a site (or *All sites*). Choose 1 segment (single power law) or 2 (piecewise, auto breakpoint). Continue to run the regression.
 3. **Export Report** – inspect the rating-curve preview (toggle log-log axes), set the uncertainty threshold, and save the multi-sheet Excel report.
 
 ### Command line
@@ -41,9 +41,10 @@ python3 -m src.field_measurement_validation path/to/data.xlsx --output-csv clean
 python3 -m src.field_measurement_validation --default-dataset
 python3 process_field_measurements.py
 
-# Fit the curve from a cleaned CSV (single or piecewise)
+# Fit the curve from a cleaned CSV (single or piecewise; optional site filter)
 python3 -m src.rating_curve_fitting
 python3 -m src.rating_curve_fitting --segments 2 --h0 0.18
+python3 -m src.rating_curve_fitting --site "Upper Reach"
 
 # Fit + write the Excel report
 python3 -m src.rating_curve_report
@@ -64,12 +65,21 @@ and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
   beneath the stage/discharge columns are actually numeric, so a section-title
   row is not mistaken for the header. Two-row headers (name row + unit row) are
   detected and combined. Pass `header_row=` (0-based) to override.
-- **Column names** – matched loosely against a synonym table in `src/schema.py`
-  (`Gauge Height`, `Stage`, `WSE`, `GH`, `Q`, `Streamflow`, `Sample Date`, …).
-  Ambiguities (e.g. two stage-like columns) are reported, not guessed silently.
+- **Column names** – matched loosely against a synonym table (`Gauge Height`,
+  `Stage`, `WSE`, `GH`, `Q`, `Streamflow`, `Sample Date`, …). Ambiguities
+  (e.g. two stage-like columns) are reported, not guessed silently. Extend the
+  table via `config/column_aliases.yaml` (or `$RATING_CURVE_ALIASES` /
+  `~/.rating_curve_automater/column_aliases.yaml`) without touching code.
 - **Units** – read from the header (`(ft)`, `(cfs)`, `(cm)`, `ML/d`, …) and
   converted to SI (metres, m³/s). If no unit is found, SI is assumed and the
   report says so.
+- **Messy values** – `"N/A"` / `"--"` placeholders become blanks; thousands
+  separators and decimal commas are handled; censored values (`"<0.001"`) are
+  taken at face value and flagged; `Total` / `Average` footer rows are dropped.
+- **Dates** – Excel serial numbers, ambiguous day/month order, and a separate
+  `Time` column (merged into the date) are all handled.
+- **Multiple sites** – a `Site` column is carried through; fit one site at a
+  time (`workflow.run_fit(site=…)`, `--site`, or the GUI picker).
 - **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`
   forces a mapping when detection is wrong.
 
@@ -105,10 +115,11 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 | `rating_curve_app.py` | Tkinter GUI (thin view over `src/workflow.py`) |
 | `process_field_measurements.py` | Batch-clean the bundled dataset |
 | `src/workflow.py` | Headless load → validate → fit → export controller |
-| `src/schema.py` | Canonical column schema + header resolution |
+| `src/schema.py` | Canonical column schema + header resolution (aliases from `config/column_aliases.yaml`) |
 | `src/units.py` | Stage/discharge unit detection and SI conversion |
+| `src/cleaning.py` | Messy-value coercion, footer-row drop, date/time parsing |
 | `src/loader.py` | `load_measurements()` — sheet/header/column/unit detection + `LoadReport` |
-| `src/field_measurement_validation.py` | Cleaning, validation, warning tier |
+| `src/field_measurement_validation.py` | Validation, warning tier |
 | `src/rating_curve_fitting.py` | `h0` estimation and power-law fit |
 | `src/rating_curve_report.py` | Excel report + chart |
 | `src/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |

@@ -9,7 +9,7 @@ from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import PatternFill
 
 from src.rating_curve_fitting import select_valid_measurements
-from src.schema import DATE, DISCHARGE_CMS, STAGE_M
+from src.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
 
 # Friendly column labels used in the exported workbook.
 OUT_DATE = "Date"
@@ -59,7 +59,10 @@ def build_observed_modeled_table(
 
 
 def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
-    rows = [{"Metric": "h0", "Value": fit["h0"]}]
+    rows = []
+    if fit.get("site"):
+        rows.append({"Metric": "site", "Value": fit["site"]})
+    rows.append({"Metric": "h0", "Value": fit["h0"]})
 
     if fit.get("is_segmented"):
         rows.append({"Metric": "breakpoint stage (m)", "Value": fit["breakpoint"]})
@@ -89,16 +92,24 @@ def export_rating_curve_report(
     uncertainty_threshold: float = 0.25,
     r_squared: float | None = None,
     fit: dict | None = None,
+    site: str | None = None,
 ) -> Path:
     """Write the multi-sheet Excel report.
 
     Pass ``fit`` (the dict from :func:`fit_rating_curve`) to render segmented
     curves and reuse its overall R²; otherwise a single power law ``a``/``b``/
-    ``h0`` is used.
+    ``h0`` is used. ``site`` (or a single-valued site column in ``df``) is
+    recorded in the Summary sheet.
     """
     from src.rating_curve_fitting import predict_discharge
 
     predict = (lambda stage: predict_discharge(fit, stage)) if fit is not None else None
+
+    if site is None and SITE in df.columns:
+        unique_sites = df[SITE].dropna().astype(str).str.strip().unique()
+        unique_sites = [s for s in unique_sites if s]
+        if len(unique_sites) == 1:
+            site = unique_sites[0]
     original_data = df.copy()
     table = build_observed_modeled_table(
         df, a=a, b=b, h0=h0, uncertainty_threshold=uncertainty_threshold, predict=predict
@@ -117,6 +128,8 @@ def export_rating_curve_report(
 
     fit_summary = dict(fit) if fit is not None else {"a": a, "b": b, "h0": h0}
     fit_summary["r_squared"] = r_squared
+    if site:
+        fit_summary["site"] = site
     summary = build_summary_table(fit_summary, table)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)

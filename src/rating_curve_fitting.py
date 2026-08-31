@@ -279,10 +279,18 @@ def main() -> None:
     parser.add_argument("--csv", type=str, default=None, help="Cleaned measurements CSV (default: ./cleaned_measurements.csv).")
     parser.add_argument("--h0", type=float, default=None, help="Stage of zero flow (default: estimate from data).")
     parser.add_argument("--segments", type=int, default=1, choices=(1, 2), help="1 = single power law, 2 = piecewise.")
+    parser.add_argument("--site", type=str, default=None, help="Fit only rows with this value in the 'site' column.")
     args = parser.parse_args()
 
     csv_path = Path(args.csv) if args.csv else Path(__file__).resolve().parent.parent / "cleaned_measurements.csv"
     df = pd.read_csv(csv_path)
+    if args.site is not None:
+        from src.schema import SITE
+
+        if SITE not in df.columns:
+            raise SystemExit("No 'site' column in the CSV.")
+        df = df[df[SITE].astype(str).str.strip() == args.site]
+        print(f"Site filter: {args.site} ({len(df)} rows)")
     fit = fit_rating_curve(df, h0=args.h0, segments=args.segments)
 
     print("Rating curve fit results")

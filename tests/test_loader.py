@@ -161,6 +161,69 @@ def test_explicit_header_row_override(tmp_path):
     assert report.ok
 
 
+def test_messy_values_and_footer_row(tmp_path):
+    path = tmp_path / "messy.xlsx"
+    rows = [
+        {"Date": "01/02/2021", "Stage (m)": "0,45", "Discharge (m3/s)": "<0.01", "Site": "A"},
+        {"Date": "15/02/2021", "Stage (m)": "1,20", "Discharge (m3/s)": "1 234,5", "Site": "A"},
+        {"Date": "20/02/2021", "Stage (m)": "n/a", "Discharge (m3/s)": "2.0", "Site": "A"},
+        {"Date": "Total", "Stage (m)": "", "Discharge (m3/s)": "", "Site": ""},
+    ]
+    pd.DataFrame(rows).to_excel(path, sheet_name="S", index=False)
+
+    canonical, report = load_measurements(path)
+
+    assert report.n_rows == 3  # footer dropped
+    assert canonical[STAGE_M].iloc[0] == 0.45           # decimal comma
+    assert canonical[DISCHARGE_CMS].iloc[1] == 1234.5   # thousands + decimal comma
+    assert canonical[DATE].iloc[0].month == 2 and canonical[DATE].iloc[0].day == 1
+    assert any("censored" in m for m in report.messages)
+
+
+def test_separate_date_and_time_columns(tmp_path):
+    path = tmp_path / "datetime.xlsx"
+    n = 12
+    pd.DataFrame({
+        "Date": pd.date_range("2021-01-01", periods=n, freq="D").strftime("%Y-%m-%d"),
+        "Time": ["08:30"] * n,
+        "Stage (m)": np.linspace(0.3, 1.0, n),
+        "Discharge (m3/s)": np.linspace(0.1, 0.8, n),
+    }).to_excel(path, sheet_name="S", index=False)
+
+    canonical, report = load_measurements(path)
+    assert "time" not in canonical.columns
+    assert canonical["date"].iloc[0].hour == 8 and canonical["date"].iloc[0].minute == 30
+    assert any("date and time" in m for m in report.messages)
+
+
+def test_multi_site_load_and_per_site_fit(tmp_path):
+    path = tmp_path / "multisite.xlsx"
+    frames = []
+    for site, (a, b) in {"Upper": (1.0, 1.6), "Lower": (2.0, 1.9)}.items():
+        h = np.linspace(0.3, 1.4, 40)
+        frames.append(pd.DataFrame({
+            "Date": pd.date_range("2020-01-01", periods=40, freq="W"),
+            "Stage (m)": h,
+            "Discharge (m3/s)": a * (h - 0.1) ** b,
+            "Site": site,
+        }))
+    pd.concat(frames).to_excel(path, sheet_name="S", index=False)
+
+    wf = RatingCurveWorkflow()
+    validation = wf.load_and_validate(path)
+    assert validation.is_multi_site
+    assert validation.sites == ["Lower", "Upper"]
+
+    upper = wf.run_fit(site="Upper")
+    assert upper.site == "Upper"
+    assert upper.params["n_points"] == 40
+    assert 1.4 < upper.params["b"] < 1.8
+
+    out = wf.export_report(tmp_path / "upper.xlsx")
+    summary = pd.read_excel(out, sheet_name="Summary")
+    assert (summary["Metric"] == "site").any()
+
+
 def test_workflow_end_to_end_on_foreign_sheet(tmp_path):
     path = tmp_path / "foreign2.xlsx"
     n = 50
