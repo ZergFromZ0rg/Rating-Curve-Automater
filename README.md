@@ -19,17 +19,28 @@ pip install -r requirements.txt
 
 ## Usage
 
-### GUI
+### Web UI (recommended)
+
+```bash
+streamlit run app.py
+```
+
+Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the page:
+
+1. **Sheet / header row** (sidebar) – blank = auto-detect.
+2. **Column mapping** – each field is pre-filled from auto-detection; override any that are wrong from the dropdowns (the page re-runs live).
+3. **Detected layout** – expandable panel with the chosen sheet, header row, units and a preview; opens automatically when confidence is low.
+4. **Validation** – valid / invalid / warning counts, with expandable tables of the flagged rows.
+5. **Fit** – site picker (if the workbook has a `Site` column), `h0` (estimate or enter), 1 or 2 segments, uncertainty threshold; shows `a` / `b` / `h0` / R² and a rating-curve plot (log-log toggle).
+6. **Export** – download the multi-sheet Excel report.
+
+### Desktop GUI (Tkinter)
 
 ```bash
 python3 rating_curve_app.py
 ```
 
-Three-step wizard:
-
-1. **Input Dataset** – browse to an `.xlsx` / `.xls` / `.csv` file; leave *Sheet name* and *Header row* blank to auto-detect (or set them), then *Upload and Validate*. The status panel shows which sheet, header row, column mapping and units were used; if the loader isn't confident you get a warning prompting you to set them explicitly.
-2. **Validation & Flags** – review valid / invalid / warning counts and the per-row flag list (`INVALID` rows are excluded from the fit, `WARNING` rows are kept). Optionally enter `h0` (stage of zero flow; blank = estimate). If the workbook has a `Site` column, pick a site (or *All sites*). Choose 1 segment (single power law) or 2 (piecewise, auto breakpoint). Continue to run the regression.
-3. **Export Report** – inspect the rating-curve preview (toggle log-log axes), set the uncertainty threshold, and save the multi-sheet Excel report.
+Same workflow as a three-page wizard. Both front ends are thin views over `src/workflow.py`.
 
 ### Command line
 
@@ -112,7 +123,8 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 
 | Path | Purpose |
 |---|---|
-| `rating_curve_app.py` | Tkinter GUI (thin view over `src/workflow.py`) |
+| `app.py` | Streamlit web UI (thin view over `src/workflow.py`) |
+| `rating_curve_app.py` | Tkinter desktop GUI (thin view over `src/workflow.py`) |
 | `process_field_measurements.py` | Batch-clean the bundled dataset |
 | `src/workflow.py` | Headless load → validate → fit → export controller |
 | `src/schema.py` | Canonical column schema + header resolution (aliases from `config/column_aliases.yaml`) |
