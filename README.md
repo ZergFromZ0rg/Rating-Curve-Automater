@@ -7,8 +7,11 @@ cleans and validates a measurement workbook, fits the power-law model
 Q = a · (H − h0)^b
 ```
 
-by log–log linear regression, flags points the model fits poorly, and exports a
-formatted Excel report with an embedded rating-curve chart.
+— by log–log least squares, or a continuous multi-segment (compound-control)
+power law, or an optional Bayesian backend — with bootstrap confidence /
+prediction bands, a leave-one-out accuracy figure, temporal-drift diagnostics,
+an optional Manning cross-section check of the extrapolation, and a formatted
+multi-sheet Excel report with charts.
 
 > **Provisional software, no warranty.** Every rating curve, uncertainty band and
 > shift flag is a decision aid — review it as a qualified hydrographer before
@@ -42,10 +45,10 @@ Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the p
 2. **Column mapping** – each field is pre-filled from auto-detection; override any that are wrong from the dropdowns (the page re-runs live).
 3. **Detected layout** – expandable panel with the chosen sheet, header row, units and a preview; opens automatically when confidence is low.
 4. **Validation** – valid / invalid / warning counts, with expandable tables of the flagged rows.
-5. **Fit** – fit method (least squares / Bayesian), site picker (if the workbook has a `Site` column), `h0` (estimate or enter), segments (1 / 2 / 3 / auto-by-BIC), discharge-uncertainty %, rating-table step; shows `a` / `b` / `h0` / R², the `b` confidence interval, and a rating-curve plot with shaded confidence / prediction bands (log-log toggle).
+5. **Fit** – fit method (least squares / Bayesian, plus a NUTS/ADVI sampler pick for Bayesian), site picker (if the workbook has a `Site` column), `h0` (estimate or enter), segments (1 / 2 / 3 / auto-by-BIC), discharge-uncertainty %, rating-table step, and an optional **Manning cross-section check** (upload a section + slope). Shows `a` / `b` / `h0` (with how `h0` was estimated) / R², the `b` confidence interval, and a rating-curve plot with shaded confidence / prediction bands (log-log toggle).
 6. **Export** – download the multi-sheet Excel report and the stage→discharge rating table (CSV), with a preview.
 
-If the gaugings carry dates, a **residuals-over-time** panel and a rating-shift notice appear under the plot.
+If the gaugings carry dates, a **residuals-over-time** panel and a rating-shift notice appear under the plot; a Manning-check notice appears when a cross-section is given.
 
 Both the web UI and the CLI are thin views over `rating_curve_automater/workflow.py`.
 
@@ -64,13 +67,16 @@ rca validate --default-dataset
 rca fit
 rca fit --segments 2 --h0 0.18
 rca fit --segments auto            # BIC picks the segment count
-rca fit --method bayesian          # ratingcurve / PyMC  (needs the [bayesian] extra)
+rca fit --method bayesian --sampler nuts   # ratingcurve / PyMC  (needs the [bayesian] extra)
 rca fit --site "Upper Reach"
 rca fit --uncertainty-pct 5 --bootstrap 2000 --seed 0
+rca fit --segments auto --loo      # + leave-one-out cross-validated error
+rca fit --segments auto --cross-section section.csv --slope 0.0012   # + Manning check
 
-# Fit + write the Excel report (+ optional stage->Q rating table CSV)
+# Fit + write the Excel report (+ optional stage->Q rating table CSV / Manning sheet)
 rca report
 rca report --rating-table-csv rating_table.csv --step 0.01
+rca report --cross-section section.csv --slope 0.0012
 ```
 
 ### Library
@@ -81,6 +87,7 @@ from rating_curve_automater import RatingCurveWorkflow
 wf = RatingCurveWorkflow()
 wf.load_and_validate("gaugings.xlsx")
 outcome = wf.run_fit(segments="auto")        # fit + uncertainty bands + drift check
+wf.manning_check("section.csv", slope=0.0012)  # optional: sanity-check the extrapolation
 wf.export_report("report.xlsx")              # multi-sheet Excel + rating table
 table = wf.rating_table(step=0.01)           # stage -> discharge DataFrame
 ```
@@ -201,13 +208,12 @@ Two orthogonal choices, not a menu of overlapping ones:
   where the in-sample R² is not. Needs ≥ 8 valid gaugings.
 - **Temporal drift / rating shift** – when the gaugings carry dates,
   `assess_temporal_drift` (always run; `fit["drift"]`) fits the curve's
-  log-residuals against gauging date and tests two things with a permutation
-  test: a linear **time trend** (`trend_pct_per_year`) and whether the most
-  recent ~12 months of gaugings sit systematically off the curve
-  (`recent_mean_pct`). It also runs a **split-period test** — an early-half vs
-  late-half re-fit compared over their shared stage range (permutation p-value,
-  `split_shift_pct`) — which catches a shift the combined fit absorbed into curve
-  shape. The `flag` is `none` / `possible` / `likely`, or **`unassessable`** when
+  log-residuals against gauging date and runs three permutation tests: a linear
+  **time trend** (`trend_pct_per_year`); whether the most recent ~12 months of
+  gaugings sit systematically off the curve (`recent_mean_pct`); and a
+  **split-period test** — an early-half vs late-half re-fit compared over their
+  shared stage range (`split_shift_pct`) — which catches a shift the combined fit
+  absorbed into curve shape. The `flag` is `none` / `possible` / `likely`, or **`unassessable`** when
   stage and gauging date are so rank-correlated (`stage_time_corr`) that a shift
   cannot be separated from the curve shape. A material trend (≥ 3 %/yr), recent
   bias (≥ 7 %) or split shift (≥ 7 %) that is also significant → `likely`, with a
@@ -237,25 +243,28 @@ Two orthogonal choices, not a menu of overlapping ones:
   (offset + elevation CSV, or arrays) and the channel slope and
   `manning_sanity_check(fit, offset, bed, slope, n=None)` /
   `RatingCurveWorkflow.manning_check(...)` / `rca fit --cross-section xs.csv
-  --slope 0.001` computes an independent **Manning** curve
-  `Q = (1/n)·A·R^(2/3)·S^(1/2)`. Manning's `n` is calibrated to the rating over
-  the gauged range (so the check is about the *shape* of the extrapolation, not
-  a guessed roughness) unless you pass one. The result carries both curves on a
-  grid, their percent difference, and a `flag`: `ok` / `check` / `diverges`
-  (the power-law extrapolation above the highest gauging is not supported by the
-  channel geometry) / `implausible-n` (the calibrated `n` is outside
-  0.015–0.20 → the slope, survey or rating is off). Shows on the rating plot,
-  the web UI, and a **Manning Check** sheet in the report. Single `n`, steady
-  uniform flow — most trustworthy for in-bank / slightly-out-of-bank
+  --slope 0.001` (also `--mannings-n`, `--stage-offset`) computes an independent
+  **Manning** curve `Q = (1/n)·A·R^(2/3)·S^(1/2)`. Manning's `n` is calibrated
+  to the rating over the gauged range (so the check is about the *shape* of the
+  extrapolation, not a guessed roughness) unless you pass one. The result
+  carries both curves on a grid, their percent difference, and a `flag`:
+  `ok` / `check` (15–35 % drift) / `diverges` (> 35 % — the power-law
+  extrapolation above the highest gauging is not supported by the channel
+  geometry) / `implausible-n` (the calibrated `n` is outside 0.015–0.20 → the
+  slope, survey or rating is off) / `unusable` (bad inputs). Shows on the rating
+  plot, the web UI, and a **Manning Check** sheet in the report. Single `n`,
+  steady uniform flow — most trustworthy for in-bank / slightly-out-of-bank
   extrapolation.
 - The fit and the report operate on the same valid-row set
   (`select_valid_measurements`), and the report reuses the fit's R².
 - **Plausibility check** – every fit is assessed (`assess_fit`). A **critical**
   warning (exponent `b ≤ 0`, or stage and discharge essentially uncorrelated)
   means the data is not a rating curve at all; **non-critical** warnings cover a
-  low R² or fewer than 5 points. Warnings show in the web UI and the report's
-  Summary sheet; `fit_rating_curve(..., strict=True)` / `--strict` raises
-  `ImplausibleRatingCurve` on a critical warning.
+  low R², fewer than 5 points, a weakly-identified `h0` (the estimate hit a
+  search bound), and a single power law fitted to gaugings that are visibly
+  curved in log–log space (→ "try `segments=2` / `"auto"`"). Warnings show in the
+  web UI and the report's Summary sheet; `fit_rating_curve(..., strict=True)` /
+  `--strict` raises `ImplausibleRatingCurve` on a critical warning.
 
 ## Project layout
 
