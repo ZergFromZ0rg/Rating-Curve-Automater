@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
-DATASET = Path(__file__).resolve().parents[1] / "10_year_single_site_rating_curve_data.xlsx"
+DATASET = Path(__file__).resolve().parents[1] / "rating_curve_automater" / "data" / "10_year_single_site_rating_curve_data.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 

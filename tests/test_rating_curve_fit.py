@@ -3,7 +3,7 @@ import numpy as np
 
 import pytest
 
-from src.rating_curve_fitting import (
+from rating_curve_automater.rating_curve_fitting import (
     ImplausibleRatingCurve,
     estimate_h0,
     fit_rating_curve,

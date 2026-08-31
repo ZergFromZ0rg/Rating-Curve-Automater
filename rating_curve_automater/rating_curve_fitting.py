@@ -5,11 +5,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.schema import DISCHARGE_CMS, STAGE_M, ensure_canonical
+from rating_curve_automater.schema import DISCHARGE_CMS, STAGE_M, ensure_canonical
 
 DEFAULT_H0 = 0.18
 
-# Back-compat aliases (canonical names now live in src.schema).
+# Back-compat aliases (canonical names now live in rating_curve_automater.schema).
 STAGE_COL = STAGE_M
 DISCHARGE_COL = DISCHARGE_CMS
 
@@ -17,7 +17,7 @@ DISCHARGE_COL = DISCHARGE_CMS
 def select_valid_measurements(df: pd.DataFrame) -> pd.DataFrame:
     """Return the stage/discharge rows that are usable for curve work.
 
-    Accepts a canonical or a raw frame (see :func:`~src.schema.ensure_canonical`),
+    Accepts a canonical or a raw frame (see :func:`~rating_curve_automater.schema.ensure_canonical`),
     applies the ``is_valid`` flag when present, and drops rows missing a stage
     or discharge value. Used by both the fitter and the report so the two always
     operate on the same set of points.
@@ -346,7 +346,7 @@ def main() -> None:
     csv_path = Path(args.csv) if args.csv else Path(__file__).resolve().parent.parent / "cleaned_measurements.csv"
     df = pd.read_csv(csv_path)
     if args.site is not None:
-        from src.schema import SITE
+        from rating_curve_automater.schema import SITE
 
         if SITE not in df.columns:
             raise SystemExit("No 'site' column in the CSV.")

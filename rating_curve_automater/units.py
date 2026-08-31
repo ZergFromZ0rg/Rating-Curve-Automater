@@ -1,6 +1,6 @@
 """Detect stage/discharge units from column headers and convert to SI.
 
-Conversions are applied by :func:`src.loader.load_measurements`. When no unit
+Conversions are applied by :func:`rating_curve_automater.loader.load_measurements`. When no unit
 can be read from the header the value is assumed to already be in SI
 (metres / cubic metres per second) and the report records that assumption.
 """

@@ -4,8 +4,8 @@ Run with::
 
     streamlit run app.py
 
-A thin view over :class:`src.workflow.RatingCurveWorkflow` -- the same headless
-controller the Tkinter app (``rating_curve_app.py``) uses.
+A thin view over :class:`rating_curve_automater.workflow.RatingCurveWorkflow`, the
+headless load -> validate -> fit -> export controller.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from src.loader import load_measurements
-from src.rating_curve_plot import make_rating_curve_figure
-from src.schema import (
+from rating_curve_automater.loader import load_measurements
+from rating_curve_automater.rating_curve_plot import make_rating_curve_figure
+from rating_curve_automater.schema import (
     ALL_FIELDS,
     DATE,
     DISCHARGE_CMS,
@@ -27,7 +27,7 @@ from src.schema import (
     REQUIRED_FIELDS,
     STAGE_M,
 )
-from src.workflow import DEFAULT_UNCERTAINTY_THRESHOLD, RatingCurveWorkflow
+from rating_curve_automater.workflow import DEFAULT_UNCERTAINTY_THRESHOLD, RatingCurveWorkflow
 
 st.set_page_config(page_title="Rating Curve Automater", page_icon="📈", layout="wide")
 

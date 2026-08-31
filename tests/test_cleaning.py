@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.cleaning import (
+from rating_curve_automater.cleaning import (
     clean_numeric_series,
     coerce_datetime,
     drop_footer_rows,

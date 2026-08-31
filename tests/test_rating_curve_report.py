@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.rating_curve_report import build_observed_modeled_table, export_rating_curve_report
+from rating_curve_automater.rating_curve_report import build_observed_modeled_table, export_rating_curve_report
 
 
 def test_build_observed_modeled_table_flags_uncertain_points():

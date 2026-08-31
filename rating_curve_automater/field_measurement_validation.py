@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
-from src.schema import DATE, DISCHARGE_CMS, NOTES, QUALITY, SITE, STAGE_M, TIME, ensure_canonical
+from rating_curve_automater.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
+from rating_curve_automater.schema import DATE, DISCHARGE_CMS, NOTES, QUALITY, SITE, STAGE_M, TIME, ensure_canonical
 
 REJECT_QUALITY_VALUES = {"bad", "poor", "unreliable", "reject", "rejected"}
 #: An identical stage value repeated this many times (per site) is treated as a
@@ -48,8 +48,8 @@ def clean_and_validate_measurements(
 ) -> pd.DataFrame:
     """Clean and validate a field measurement table for rating curve work.
 
-    ``df`` may use the canonical schema (see :mod:`src.schema`) or any workbook
-    headers that :func:`~src.schema.resolve_columns` can map. The returned frame
+    ``df`` may use the canonical schema (see :mod:`rating_curve_automater.schema`) or any workbook
+    headers that :func:`~rating_curve_automater.schema.resolve_columns` can map. The returned frame
     always has canonical columns plus ``is_valid`` / ``validation_notes`` /
     ``has_warning`` / ``warning_notes``.
     """
@@ -137,13 +137,13 @@ def clean_and_validate_measurements(
 
 def read_measurement_excel(input_path: str | Path, sheet_name: str | int | None = None) -> pd.DataFrame:
     """Load a workbook into a canonical frame (kept for backwards compatibility)."""
-    from src.loader import load_measurements
+    from rating_curve_automater.loader import load_measurements
 
     canonical, _ = load_measurements(input_path, sheet=sheet_name)
     return canonical
 
 
-DEFAULT_DATASET = Path(__file__).resolve().parent.parent / "10_year_single_site_rating_curve_data.xlsx"
+DEFAULT_DATASET = Path(__file__).resolve().parent / "data" / "10_year_single_site_rating_curve_data.xlsx"
 DEFAULT_DATASET_SHEET = "Measurements"
 
 
@@ -156,7 +156,7 @@ def clean_measurements_to_csv(
 
     Returns the cleaned dataframe and prints a short summary.
     """
-    from src.loader import load_measurements
+    from rating_curve_automater.loader import load_measurements
 
     canonical, report = load_measurements(input_excel, sheet=sheet_name)
     cleaned = clean_and_validate_measurements(canonical)

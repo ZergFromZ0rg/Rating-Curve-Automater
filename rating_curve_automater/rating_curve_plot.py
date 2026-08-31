@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.rating_curve_fitting import predict_discharge, select_valid_measurements
-from src.schema import DISCHARGE_CMS, STAGE_M
+from rating_curve_automater.rating_curve_fitting import predict_discharge, select_valid_measurements
+from rating_curve_automater.schema import DISCHARGE_CMS, STAGE_M
 
 OBSERVED_COLOR = "#1f77b4"
 MODEL_COLOR = "#d62728"

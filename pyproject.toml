@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rating-curve-automater"
+version = "0.1.0"
+description = "Build a stage-discharge rating curve from messy field-gauging spreadsheets."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "ZergFromZ0rg" }]
+keywords = ["hydrology", "rating curve", "stage discharge", "streamflow", "hydrometry"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Hydrology",
+    "Private :: Do Not Upload",
+]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "openpyxl>=3.1",
+    "matplotlib>=3.7",
+    "PyYAML>=6.0",
+]
+
+# No open-source licence is set yet: all rights reserved. Contact the author for
+# reuse terms. (The "Private :: Do Not Upload" classifier blocks accidental
+# publication to PyPI.)
+
+[project.optional-dependencies]
+app = ["streamlit>=1.30"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+rca = "rating_curve_automater.cli:main"
+
+[tool.setuptools]
+packages = ["rating_curve_automater"]
+
+[tool.setuptools.package-data]
+rating_curve_automater = ["data/*.xlsx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

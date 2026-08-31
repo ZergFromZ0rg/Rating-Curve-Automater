@@ -8,8 +8,8 @@ import pandas as pd
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import PatternFill
 
-from src.rating_curve_fitting import select_valid_measurements
-from src.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
+from rating_curve_automater.rating_curve_fitting import select_valid_measurements
+from rating_curve_automater.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
 
 # Friendly column labels used in the exported workbook.
 OUT_DATE = "Date"
@@ -105,7 +105,7 @@ def export_rating_curve_report(
     ``h0`` is used. ``site`` (or a single-valued site column in ``df``) is
     recorded in the Summary sheet.
     """
-    from src.rating_curve_fitting import predict_discharge
+    from rating_curve_automater.rating_curve_fitting import predict_discharge
 
     predict = (lambda stage: predict_discharge(fit, stage)) if fit is not None else None
 
@@ -213,7 +213,7 @@ def export_rating_curve_report(
 def main() -> None:
     import pandas as pd
 
-    from src.rating_curve_fitting import fit_rating_curve
+    from rating_curve_automater.rating_curve_fitting import fit_rating_curve
 
     input_path = Path(__file__).resolve().parent.parent / "cleaned_measurements.csv"
     output_path = Path(__file__).resolve().parent.parent / "rating_curve_report.xlsx"
