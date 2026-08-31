@@ -159,16 +159,23 @@ Two orthogonal choices, not a menu of overlapping ones:
     "least squares" and "weighted least squares" are the same control.
   * `"bayesian"` – thodson-usgs [`ratingcurve`](https://github.com/thodson-usgs/ratingcurve)
     (a PyMC power-law model). `h0`, the segment slopes and the bands all come
-    from the posterior. Needs `pip install ".[bayesian]"`; the first fit takes
-    roughly a minute. Handy as an independent cross-check of the least-squares
-    fit.
+    from the posterior. `bayesian_sampler=` / `--sampler` picks `"nuts"` (exact),
+    `"advi"` (fast variational) or `"auto"` (NUTS for ≤ 200 gaugings, ADVI above);
+    NUTS places breakpoints more reliably. Needs `pip install ".[bayesian]"`.
 * **Shape** (`segments=`) – `1`, an integer `≥ 2`, or `"auto"`. This is the
   "segmented power law with breakpoints" option and it composes with either
-  method (Bayesian auto-selection isn't supported – it uses 1 with a note).
+  method. `"auto"` fits 1..N segments and keeps the lowest-BIC count — for the
+  Bayesian backend too (each candidate is a full fit, so it is slow).
 
-- `h0` (stage of zero flow) is estimated by a golden-section search that
-  maximises the fit R², bounded just below the lowest observed stage. Pass an
-  explicit `h0` to override. (The Bayesian backend infers `h0` instead.)
+- `h0` (stage of zero flow) is estimated by the classic three-point
+  (geometric-progression) method, refined by the `h0` that drives the log–log
+  **curvature** of the low-flow gaugings to zero, with a reliability gate that
+  falls back to a neutral default when the three-point triples disagree. Unlike
+  maximising R² (which collapses toward `h0 → 0`), this does not trade `h0` off
+  against `a` and `b`. `fit["h0_diagnostics"]` records the `method`, whether the
+  estimate `railed` against a bound (→ a "weakly identified" warning) and the
+  residual curvature. Pass an explicit `h0` to override; the Bayesian backend
+  infers `h0` from the posterior instead.
 - **Weighting** – the log–log regression weights each gauging by
   `1 / (fractional discharge uncertainty)`. With no uncertainty column and one
   assumed percentage the weights are uniform (ordinary least squares); a
@@ -179,21 +186,32 @@ Two orthogonal choices, not a menu of overlapping ones:
   down-weighted outlier no longer trips the "poor fit" warning.
 - **Confidence & prediction bands** – `fit_rating_curve(..., n_bootstrap=1000)`
   (on by default in the web UI / `--bootstrap`) runs a wild residual bootstrap in
-  log space, re-fitting the curve with `h0` (and any breakpoint) held fixed and
-  the same weights. It returns `fit["bands"]`: a dense stage grid with a
+  log space, re-fitting the curve with the same weights. When `h0` was estimated
+  it is **re-estimated inside every replicate** (physical breakpoints held), so
+  the band carries the point-of-zero-flow uncertainty — otherwise the low-flow
+  band is too tight. It returns `fit["bands"]`: a dense stage grid with a
   **confidence** band (how well the mean curve is known) and a wider
   **prediction** band (where the next gauging would fall), plus `ci_level`
-  intervals on `a` and `b`. The band spans the observed stage range only – it is
-  not an extrapolation tool. The web UI shades it on the plot and the Excel report
-  gets a **Rating Curve Band** sheet. Needs ≥ 4 usable gaugings.
+  intervals on `a`, `b` and `h0`. The band spans the observed stage range only –
+  it is not an extrapolation tool. The web UI shades it on the plot and the Excel
+  report gets a **Rating Curve Band** sheet. Needs ≥ 4 usable gaugings.
+- **Leave-one-out accuracy** – `leave_one_out_error(df, …)` (in the Excel report,
+  and `rca fit --loo`) holds out each valid gauging, re-fits, and predicts it;
+  reports out-of-sample RMSPE / bias / 95th-percentile error — an honest figure
+  where the in-sample R² is not. Needs ≥ 8 valid gaugings.
 - **Temporal drift / rating shift** – when the gaugings carry dates,
   `assess_temporal_drift` (always run; `fit["drift"]`) fits the curve's
   log-residuals against gauging date and tests two things with a permutation
   test: a linear **time trend** (`trend_pct_per_year`) and whether the most
   recent ~12 months of gaugings sit systematically off the curve
-  (`recent_mean_pct`). The `flag` is `none` / `possible` / `likely`; a material
-  trend (≥ 3 %/yr) or recent bias (≥ 7 %) that is also significant → `likely`,
-  with a message pointing at scour vs aggradation and suggesting a stage shift
+  (`recent_mean_pct`). It also runs a **split-period test** — an early-half vs
+  late-half re-fit compared over their shared stage range (permutation p-value,
+  `split_shift_pct`) — which catches a shift the combined fit absorbed into curve
+  shape. The `flag` is `none` / `possible` / `likely`, or **`unassessable`** when
+  stage and gauging date are so rank-correlated (`stage_time_corr`) that a shift
+  cannot be separated from the curve shape. A material trend (≥ 3 %/yr), recent
+  bias (≥ 7 %) or split shift (≥ 7 %) that is also significant → `likely`, with a
+  message pointing at scour vs aggradation and suggesting a stage shift
   or re-fit. The web UI shows a residual-vs-date plot; the report gets a
   **Residuals Over Time** sheet (with the per-gauging percent difference and
   stage shift). Needs ≥ 6 dated gaugings over ≥ 45 days.
@@ -215,6 +233,21 @@ Two orthogonal choices, not a menu of overlapping ones:
   fit carries `breakpoints` (list), `n_segments`, and a `segments` list of
   per-segment `a`/`b`; `predict_discharge(fit, stage)` evaluates any kind
   (`rating_curve_automater/piecewise.py`).
+- **Manning cross-section check** (optional) – give a surveyed cross-section
+  (offset + elevation CSV, or arrays) and the channel slope and
+  `manning_sanity_check(fit, offset, bed, slope, n=None)` /
+  `RatingCurveWorkflow.manning_check(...)` / `rca fit --cross-section xs.csv
+  --slope 0.001` computes an independent **Manning** curve
+  `Q = (1/n)·A·R^(2/3)·S^(1/2)`. Manning's `n` is calibrated to the rating over
+  the gauged range (so the check is about the *shape* of the extrapolation, not
+  a guessed roughness) unless you pass one. The result carries both curves on a
+  grid, their percent difference, and a `flag`: `ok` / `check` / `diverges`
+  (the power-law extrapolation above the highest gauging is not supported by the
+  channel geometry) / `implausible-n` (the calibrated `n` is outside
+  0.015–0.20 → the slope, survey or rating is off). Shows on the rating plot,
+  the web UI, and a **Manning Check** sheet in the report. Single `n`, steady
+  uniform flow — most trustworthy for in-bank / slightly-out-of-bank
+  extrapolation.
 - The fit and the report operate on the same valid-row set
   (`select_valid_measurements`), and the report reuses the fit's R².
 - **Plausibility check** – every fit is assessed (`assess_fit`). A **critical**
@@ -242,7 +275,8 @@ Two orthogonal choices, not a menu of overlapping ones:
 | `rating_curve_automater/rating_curve_uncertainty.py` | Bootstrap confidence / prediction bands |
 | `rating_curve_automater/piecewise.py` | Continuous N-segment power law, BIC segment selection |
 | `rating_curve_automater/bayesian.py` | Optional Bayesian backend (wraps `ratingcurve` / PyMC) |
-| `rating_curve_automater/rating_curve_drift.py` | Residual-vs-date trend + rating-shift flag |
+| `rating_curve_automater/rating_curve_drift.py` | Residual-vs-date trend, split-period test + rating-shift flag |
+| `rating_curve_automater/manning.py` | Manning cross-section sanity check of the curve's extrapolation |
 | `rating_curve_automater/rating_table.py` | Stage→discharge lookup table (Excel sheet + CSV) |
 | `rating_curve_automater/rating_curve_report.py` | Excel report + chart |
 | `rating_curve_automater/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |

@@ -90,6 +90,9 @@ class FitOutcome:
     def summary_line(self) -> str:
         p = self.params
         source = "estimated" if p["h0_estimated"] else "user-specified"
+        h0_diag = p.get("h0_diagnostics")
+        if h0_diag is not None:
+            source += f" ({h0_diag['method']})"
         if p.get("is_segmented"):
             bps = p.get("breakpoints", [p.get("breakpoint")])
             head = (
@@ -183,6 +186,7 @@ class RatingCurveWorkflow:
         n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
         random_state: int | None = 0,
         method: str = "ols",
+        bayesian_sampler: str = "auto",
     ) -> FitOutcome:
         if self.cleaned_df is None:
             raise RuntimeError("Validate a dataset before fitting.")
@@ -203,11 +207,42 @@ class RatingCurveWorkflow:
             n_bootstrap=n_bootstrap,
             random_state=random_state,
             method=method,
+            bayesian_sampler=bayesian_sampler,
         )
         self.fit_df = fit_df
         self.fit_params = params
         self.selected_site = site
         return FitOutcome(params=params, site=site)
+
+    def manning_check(
+        self,
+        cross_section: str | Path | tuple,
+        slope: float,
+        mannings_n: float | None = None,
+        stage_offset: float = 0.0,
+        extrapolate_to: float | None = None,
+    ) -> dict:
+        """Compare the current fit's extrapolation with a Manning curve from a
+        surveyed cross-section (see :func:`rating_curve_automater.manning.manning_sanity_check`).
+
+        ``cross_section`` is a CSV path (offset + elevation columns) or an
+        ``(offset, bed_elevation)`` pair of sequences. The result is also stashed
+        on the fit params so :meth:`export_report` includes a *Manning Check* sheet.
+        """
+        if self.fit_params is None:
+            raise RuntimeError("Fit a curve before the Manning check.")
+        from rating_curve_automater.manning import manning_sanity_check, read_cross_section
+
+        if isinstance(cross_section, (str, Path)):
+            offset, bed = read_cross_section(cross_section)
+        else:
+            offset, bed = cross_section
+        result = manning_sanity_check(
+            self.fit_params, offset, bed, slope,
+            n=mannings_n, stage_offset=stage_offset, extrapolate_to=extrapolate_to,
+        )
+        self.fit_params["manning"] = result
+        return result
 
     def export_report(
         self,
