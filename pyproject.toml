@@ -31,6 +31,10 @@ dependencies = [
 
 [project.optional-dependencies]
 app = ["streamlit>=1.30"]
+# Bayesian backend (thodson-usgs ratingcurve). PyMC is pinned < 6 because
+# ratingcurve 1.0.x still uses APIs (pm.callbacks / pm.ADVI helpers) removed in
+# PyMC 6.
+bayesian = ["ratingcurve>=1.0", "pymc>=5.21,<6"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

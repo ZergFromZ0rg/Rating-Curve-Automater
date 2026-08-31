@@ -22,6 +22,7 @@ python3 -m venv .venv && source .venv/bin/activate
 
 pip install -e .              # library + `rca` command line
 pip install -e ".[app]"       # + the Streamlit web UI
+pip install -e ".[bayesian]"  # + the Bayesian fit backend (ratingcurve + PyMC)
 pip install -e ".[app,dev]"   # + pytest   (same as: pip install -r requirements.txt)
 ```
 
@@ -41,7 +42,7 @@ Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the p
 2. **Column mapping** – each field is pre-filled from auto-detection; override any that are wrong from the dropdowns (the page re-runs live).
 3. **Detected layout** – expandable panel with the chosen sheet, header row, units and a preview; opens automatically when confidence is low.
 4. **Validation** – valid / invalid / warning counts, with expandable tables of the flagged rows.
-5. **Fit** – site picker (if the workbook has a `Site` column), `h0` (estimate or enter), segments (1 / 2 / 3 / auto-by-BIC), discharge-uncertainty %, rating-table step; shows `a` / `b` / `h0` / R², the `b` confidence interval, and a rating-curve plot with shaded confidence / prediction bands (log-log toggle).
+5. **Fit** – fit method (least squares / Bayesian), site picker (if the workbook has a `Site` column), `h0` (estimate or enter), segments (1 / 2 / 3 / auto-by-BIC), discharge-uncertainty %, rating-table step; shows `a` / `b` / `h0` / R², the `b` confidence interval, and a rating-curve plot with shaded confidence / prediction bands (log-log toggle).
 6. **Export** – download the multi-sheet Excel report and the stage→discharge rating table (CSV), with a preview.
 
 If the gaugings carry dates, a **residuals-over-time** panel and a rating-shift notice appear under the plot.
@@ -63,6 +64,7 @@ rca validate --default-dataset
 rca fit
 rca fit --segments 2 --h0 0.18
 rca fit --segments auto            # BIC picks the segment count
+rca fit --method bayesian          # ratingcurve / PyMC  (needs the [bayesian] extra)
 rca fit --site "Upper Reach"
 rca fit --uncertainty-pct 5 --bootstrap 2000 --seed 0
 
@@ -149,9 +151,24 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 
 ## Model notes
 
+Two orthogonal choices, not a menu of overlapping ones:
+
+* **Fit method** (`method=` / "Fit method" radio / `--method`):
+  * `"ols"` (default) – log–log least squares. It is *automatically* a
+    **weighted** fit when a `discharge_uncertainty` column varies, so
+    "least squares" and "weighted least squares" are the same control.
+  * `"bayesian"` – thodson-usgs [`ratingcurve`](https://github.com/thodson-usgs/ratingcurve)
+    (a PyMC power-law model). `h0`, the segment slopes and the bands all come
+    from the posterior. Needs `pip install ".[bayesian]"`; the first fit takes
+    roughly a minute. Handy as an independent cross-check of the least-squares
+    fit.
+* **Shape** (`segments=`) – `1`, an integer `≥ 2`, or `"auto"`. This is the
+  "segmented power law with breakpoints" option and it composes with either
+  method (Bayesian auto-selection isn't supported – it uses 1 with a note).
+
 - `h0` (stage of zero flow) is estimated by a golden-section search that
   maximises the fit R², bounded just below the lowest observed stage. Pass an
-  explicit `h0` to override.
+  explicit `h0` to override. (The Bayesian backend infers `h0` instead.)
 - **Weighting** – the log–log regression weights each gauging by
   `1 / (fractional discharge uncertainty)`. With no uncertainty column and one
   assumed percentage the weights are uniform (ordinary least squares); a
@@ -167,7 +184,7 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
   **confidence** band (how well the mean curve is known) and a wider
   **prediction** band (where the next gauging would fall), plus `ci_level`
   intervals on `a` and `b`. The band spans the observed stage range only – it is
-  not an extrapolation tool. The web UI shade it on the plot and the Excel report
+  not an extrapolation tool. The web UI shades it on the plot and the Excel report
   gets a **Rating Curve Band** sheet. Needs ≥ 4 usable gaugings.
 - **Temporal drift / rating shift** – when the gaugings carry dates,
   `assess_temporal_drift` (always run; `fit["drift"]`) fits the curve's
@@ -177,7 +194,7 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
   (`recent_mean_pct`). The `flag` is `none` / `possible` / `likely`; a material
   trend (≥ 3 %/yr) or recent bias (≥ 7 %) that is also significant → `likely`,
   with a message pointing at scour vs aggradation and suggesting a stage shift
-  or re-fit. The web UI show a residual-vs-date plot; the report gets a
+  or re-fit. The web UI shows a residual-vs-date plot; the report gets a
   **Residuals Over Time** sheet (with the per-gauging percent difference and
   stage shift). Needs ≥ 6 dated gaugings over ≥ 45 days.
 - **Rating table** – `build_rating_table(fit, step=0.01, stage_min=…, stage_max=…)`
@@ -224,6 +241,7 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 | `rating_curve_automater/rating_curve_fitting.py` | `h0` estimation, (weighted) power-law fit, plausibility check |
 | `rating_curve_automater/rating_curve_uncertainty.py` | Bootstrap confidence / prediction bands |
 | `rating_curve_automater/piecewise.py` | Continuous N-segment power law, BIC segment selection |
+| `rating_curve_automater/bayesian.py` | Optional Bayesian backend (wraps `ratingcurve` / PyMC) |
 | `rating_curve_automater/rating_curve_drift.py` | Residual-vs-date trend + rating-shift flag |
 | `rating_curve_automater/rating_table.py` | Stage→discharge lookup table (Excel sheet + CSV) |
 | `rating_curve_automater/rating_curve_report.py` | Excel report + chart |
