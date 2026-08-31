@@ -104,6 +104,27 @@ def test_segmented_fit_gets_curve_bands_but_no_scalar_param_ci():
     assert np.all(bands["ci_lower"] <= q + 1e-9) and np.all(q <= bands["ci_upper"] + 1e-9)
 
 
+def test_estimated_h0_is_propagated_through_the_band():
+    df = _noisy_curve(h0=0.18, noise=0.08, n=55)
+
+    fixed = fit_rating_curve(df, h0=0.18, n_bootstrap=500, random_state=0)["bands"]
+    est = fit_rating_curve(df, n_bootstrap=500, random_state=0)["bands"]
+
+    # Fixed h0 -> nothing to propagate; estimated h0 -> a reported interval.
+    assert fixed["h0_ci"] is None and fixed["h0_reestimated"] is False
+    assert est["h0_reestimated"] is True
+    lo, hi = est["h0_ci"]
+    assert lo < hi and hi - lo > 0.0
+
+    # The extra parameter uncertainty widens the confidence band at the low end,
+    # where h0 matters most.
+    low = np.asarray(est["stage"]) < np.median(est["stage"])
+    def rel_low(b):
+        w = (np.asarray(b["ci_upper"]) - np.asarray(b["ci_lower"])) / np.asarray(b["q"])
+        return float(np.mean(w[low]))
+    assert rel_low(est) > rel_low(fixed)
+
+
 def test_direct_helper_matches_fit_wiring():
     df = _noisy_curve()
     fit = fit_rating_curve(df, h0=0.18)
