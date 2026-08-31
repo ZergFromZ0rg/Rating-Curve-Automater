@@ -17,3 +17,8 @@ rating_curve_report.xlsx
 .DS_Store
 .idea/
 .vscode/
+
+# Comparison / scratch work
+.venv_cmp/
+.venv*/
+scratchpad/

@@ -88,3 +88,35 @@ def test_drift_is_reproducible_with_a_seed():
 def test_assess_returns_none_without_dates():
     df = pd.DataFrame({"stage_m": [0.3, 0.6, 1.0, 1.2], "discharge_cms": [0.1, 0.4, 1.0, 1.4]})
     assert assess_temporal_drift(df, {"h0": 0.15, "a": 1.0, "b": 1.7, "is_segmented": False}) is None
+
+
+def test_split_period_catches_a_step_shift_the_combined_fit_absorbs():
+    # Dates decoupled from stage; a +15% step change halfway through the record.
+    rng = np.random.default_rng(11)
+    n = 70
+    days = np.sort(rng.uniform(0, 6 * 365, n))
+    dates = pd.Timestamp("2016-01-01") + pd.to_timedelta(days, unit="D")
+    h = rng.uniform(0.30, 1.8, n)
+    q = 6.0 * (h - 0.15) ** 1.9 * np.exp(rng.normal(0, 0.04, n))
+    q[days >= np.median(days)] *= 1.15
+    df = pd.DataFrame({"date": dates, "stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    drift = fit_rating_curve(df, segments="auto", random_state=0)["drift"]
+    assert drift["flag"] == "likely"
+    assert abs(drift["split_shift_pct"]) > 8
+    assert drift["split_p_value"] < 0.05
+
+
+def test_stage_confounded_with_date_is_reported_as_unassessable():
+    # Only low flow measured early, only high flow late -> a shift is not
+    # separable from the curve shape.
+    n = 50
+    dates = pd.date_range("2018-01-01", periods=n, freq="20D")
+    h = np.linspace(0.3, 2.2, n)               # rises monotonically with date
+    q = 5.0 * (h - 0.15) ** 2.0 * np.exp(np.random.default_rng(0).normal(0, 0.03, n))
+    df = pd.DataFrame({"date": dates, "stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    drift = fit_rating_curve(df, segments=1, random_state=0)["drift"]
+    assert drift["flag"] == "unassessable"
+    assert abs(drift["stage_time_corr"]) > 0.9
+    assert "cannot be separated" in drift["message"]

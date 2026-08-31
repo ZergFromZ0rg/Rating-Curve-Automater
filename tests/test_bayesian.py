@@ -44,7 +44,7 @@ def test_bayesian_fit_recovers_a_single_power_law_and_agrees_with_ols():
     q = 1.2 * (h - 0.15) ** 1.75 * np.exp(rng.normal(0, 0.05, 45))
     df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
 
-    bayes = fit_rating_curve(df, method="bayesian", random_state=0)
+    bayes = fit_rating_curve(df, method="bayesian", bayesian_sampler="advi", random_state=0)
     ols = fit_rating_curve(df, method="ols", n_bootstrap=300, random_state=0)
 
     assert bayes["method"] == "bayesian"
@@ -57,13 +57,31 @@ def test_bayesian_fit_recovers_a_single_power_law_and_agrees_with_ols():
 
 
 @needs_pymc
+def test_bayesian_sampler_selection():
+    from rating_curve_automater.bayesian import _resolve_sampler
+
+    assert _resolve_sampler("auto", 50) == "nuts"
+    assert _resolve_sampler("auto", 5000) == "advi"
+    assert _resolve_sampler("advi", 50) == "advi"
+    with pytest.raises(ValueError):
+        _resolve_sampler("gibbs", 50)
+
+    rng = np.random.default_rng(4)
+    h = np.sort(rng.uniform(0.3, 1.5, 40))
+    q = 1.2 * (h - 0.15) ** 1.8 * np.exp(rng.normal(0, 0.05, 40))
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
+    fit = fit_rating_curve(df, method="bayesian", bayesian_sampler="nuts", random_state=0)
+    assert fit["bayes"]["sampler"] == "nuts"
+
+
+@needs_pymc
 def test_bayesian_fit_bands_come_from_the_posterior():
     rng = np.random.default_rng(1)
     h = np.sort(rng.uniform(0.3, 1.5, 40))
     q = 1.1 * (h - 0.12) ** 1.9 * np.exp(rng.normal(0, 0.06, 40))
     df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
 
-    fit = fit_rating_curve(df, method="bayesian", random_state=0)
+    fit = fit_rating_curve(df, method="bayesian", bayesian_sampler="advi", random_state=0)
     bands = fit["bands"]
 
     assert bands is not None
@@ -75,12 +93,29 @@ def test_bayesian_fit_bands_come_from_the_posterior():
 
 
 @needs_pymc
-def test_bayesian_auto_segments_falls_back_to_one_with_a_note():
+def test_bayesian_auto_segments_picks_one_for_a_clean_power_law():
     rng = np.random.default_rng(2)
     h = np.sort(rng.uniform(0.3, 1.5, 35))
     q = 1.0 * (h - 0.15) ** 1.8 * np.exp(rng.normal(0, 0.05, 35))
     df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
 
-    fit = fit_rating_curve(df, method="bayesian", segments="auto", random_state=0)
+    fit = fit_rating_curve(df, method="bayesian", segments="auto", bayesian_sampler="advi", random_state=0)
     assert fit["n_segments"] == 1
-    assert "auto-select" in fit["bayes"]["auto_segments_note"]
+    assert fit["segment_selection"] == "auto"
+    assert set(fit["bayes"]["segment_bic"]) == {1, 2, 3}
+    assert "BIC picked 1" in fit["bayes"]["auto_segments_note"]
+
+
+@needs_pymc
+def test_bayesian_auto_segments_picks_two_for_a_compound_channel():
+    rng = np.random.default_rng(5)
+    h = np.sort(rng.uniform(0.25, 2.0, 60))
+    x = np.maximum(h - 0.15, 1e-9)
+    a_high = (6.0 * (0.85) ** 1.5) / (0.85) ** 2.6
+    q = np.where(h < 1.0, 6.0 * x ** 1.5, a_high * x ** 2.6)
+    q *= np.exp(rng.normal(0, 0.04, h.size))
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    fit = fit_rating_curve(df, method="bayesian", segments="auto", bayesian_sampler="advi", random_state=0)
+    assert fit["n_segments"] >= 2
+    assert fit["is_segmented"]

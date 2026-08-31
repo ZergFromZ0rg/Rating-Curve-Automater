@@ -69,6 +69,11 @@ def fit_and_report(
     uncertainty_pct: float,
     rating_step: float,
     method: str,
+    bayesian_sampler: str = "auto",
+    section_csv: str | None = None,
+    section_slope: float = 0.0,
+    section_n: float | None = None,
+    section_offset: float = 0.0,
 ):
     wf = RatingCurveWorkflow()
     wf.load_and_validate(
@@ -77,7 +82,14 @@ def fit_and_report(
     outcome = wf.run_fit(
         h0=h0, segments=segments, site=site,
         discharge_uncertainty_pct=uncertainty_pct, method=method,
+        bayesian_sampler=bayesian_sampler,
     )
+    if section_csv and section_slope > 0:
+        try:
+            wf.manning_check(section_csv, section_slope, mannings_n=section_n,
+                             stage_offset=section_offset)
+        except Exception as exc:  # noqa: BLE001
+            outcome.params.setdefault("manning", {"flag": "unusable", "message": str(exc)})
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as handle:
         out_path = handle.name
     wf.export_report(out_path, uncertainty_threshold=threshold, rating_table_step=rating_step)
@@ -213,6 +225,18 @@ method_label = st.radio(
 )
 method = "bayesian" if method_label == "Bayesian" else "ols"
 
+bayesian_sampler = "auto"
+if method == "bayesian":
+    bayesian_sampler = st.radio(
+        "Sampler",
+        ["auto", "nuts", "advi"],
+        horizontal=True,
+        format_func=lambda s: {"auto": "auto (NUTS ≤200 gaugings)", "nuts": "NUTS (exact, slow)",
+                               "advi": "ADVI (variational, fast)"}[s],
+        help="NUTS samples the exact posterior and places breakpoints more reliably; "
+             "ADVI is a fast approximation. 'auto' uses NUTS for small records.",
+    )
+
 f1, f2, f3, f4, f5 = st.columns(5)
 
 site = None
@@ -247,12 +271,38 @@ rating_step = f5.number_input(
     help="Stage increment for the stage→discharge lookup table (Excel sheet + CSV download).",
 )
 
+section_csv = section_slope = section_n = section_offset = None
+with st.expander("Manning cross-section check (optional — sanity-checks the extrapolation)"):
+    st.caption(
+        "Upload a surveyed cross-section (offset + elevation columns) and give the "
+        "channel slope. The tool computes an independent Manning curve and flags "
+        "where the fitted power law's extrapolation above the highest gauging "
+        "disagrees with the channel geometry."
+    )
+    sec_file = st.file_uploader("Cross-section CSV", type=["csv"], key="xsec")
+    mc1, mc2, mc3 = st.columns(3)
+    section_slope = mc1.number_input("Channel slope (m/m)", min_value=0.0, value=0.0,
+                                     step=0.0001, format="%.5f")
+    section_n = mc2.number_input("Manning's n (0 = calibrate to rating)", min_value=0.0,
+                                 max_value=0.3, value=0.0, step=0.005, format="%.3f")
+    section_offset = mc3.number_input("Stage → WSE offset (m)", value=0.0, step=0.01, format="%.3f",
+                                      help="Water-surface elevation = stage H + this offset, in the section's datum.")
+    if sec_file is not None and section_slope > 0:
+        sec_path = Path(tempfile.gettempdir()) / f"rca_xsec_{hashlib.md5(sec_file.getvalue()).hexdigest()}.csv"
+        sec_path.write_bytes(sec_file.getvalue())
+        section_csv = str(sec_path)
+    elif sec_file is not None:
+        st.warning("Enter a positive channel slope to run the check.")
+
 try:
     with st.spinner("Sampling the posterior… (~1 min on the first Bayesian fit)" if method == "bayesian"
                     else "Fitting…"):
         outcome, fit_df, report_bytes, rating_table, rating_csv = fit_and_report(
             file_key, path, sheet, header_row, tuple(sorted(overrides.items())),
             h0, segments, site, threshold, uncertainty_pct, rating_step, method,
+            bayesian_sampler,
+            section_csv, float(section_slope or 0.0),
+            (section_n or None), float(section_offset or 0.0),
         )
 except ImportError as exc:
     st.error(str(exc))
@@ -276,14 +326,20 @@ if bands and bands.get("b_ci"):
     b_delta = f"{int(round(bands['level'] * 100))}% CI [{bands['b_ci'][0]:.3f}, {bands['b_ci'][1]:.3f}]"
 k1.metric("a", f"{p['a']:.4f}")
 k2.metric("b", f"{p['b']:.4f}", b_delta, delta_color="off")
-k3.metric("h0 (m)", f"{p['h0']:.3f}", "estimated" if p["h0_estimated"] else "fixed")
+h0_note = "fixed"
+if p["h0_estimated"]:
+    hd = p.get("h0_diagnostics") or {}
+    h0_note = "weakly identified" if hd.get("railed") else f"estimated ({hd.get('method', '?')})"
+k3.metric("h0 (m)", f"{p['h0']:.3f}", h0_note, delta_color="off")
 r2_label = "weighted R²" if p.get("weighted") else "R²"
 r2_value = p.get("r_squared_weighted") if p.get("weighted") else p["r_squared"]
 k4.metric(r2_label, f"{r2_value:.4f}")
 
 if p.get("method") == "bayesian":
-    note = p.get("bayes", {}).get("auto_segments_note")
-    st.caption("🔬 Bayesian fit (thodson-usgs `ratingcurve`, PyMC ADVI)." + (f" {note}" if note else ""))
+    bx = p.get("bayes", {})
+    note = bx.get("auto_segments_note")
+    st.caption(f"🔬 Bayesian fit (thodson-usgs `ratingcurve`, PyMC {bx.get('sampler', '?').upper()})."
+               + (f" {note}" if note else ""))
 
 if bands:
     pct = int(round(bands["level"] * 100))
@@ -293,6 +349,8 @@ if bands:
         f"{pct}% prediction (where a new gauging would fall), from {src}. "
         f"Confidence band is ±{bands['ci_halfwidth_pct_at_median']:.1f}% "
         f"at the median stage. Bands cover the observed stage range only."
+        + (f" h0 re-estimated per replicate — 95% CI [{bands['h0_ci'][0]:.3f}, {bands['h0_ci'][1]:.3f}] m."
+           if bands.get("h0_ci") else "")
     )
 else:
     st.caption("Confidence/prediction bands need at least 4 usable gaugings.")
@@ -317,7 +375,7 @@ drift = p.get("drift")
 if drift:
     if drift["flag"] == "likely":
         st.warning(f"⏳ {drift['message']}")
-    elif drift["flag"] == "possible":
+    elif drift["flag"] in ("possible", "unassessable"):
         st.info(f"⏳ {drift['message']}")
     else:
         st.caption(f"⏳ {drift['message']} (spans {drift['date_min']} → {drift['date_max']})")
@@ -325,6 +383,15 @@ if drift:
     if resid_fig is not None:
         with st.expander("Residuals over time", expanded=drift["flag"] != "none"):
             st.pyplot(resid_fig, use_container_width=True)
+
+mc = p.get("manning")
+if mc:
+    if mc.get("flag") in ("diverges", "implausible-n"):
+        st.warning(f"📐 {mc['message']}")
+    elif mc.get("flag") in ("check", "unusable"):
+        st.info(f"📐 {mc['message']}")
+    else:
+        st.caption(f"📐 {mc['message']}")
 
 
 # --------------------------------------------------------------------------- #
