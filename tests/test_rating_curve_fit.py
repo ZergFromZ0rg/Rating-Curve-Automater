@@ -56,6 +56,91 @@ def test_estimate_h0_recovers_true_offset():
     assert abs(estimate_h0(stage, discharge) - 0.30) < 0.05
 
 
+def test_estimate_h0_does_not_collapse_to_zero_on_a_compound_channel():
+    # Two controls (b 1.4 -> 2.6) breaking at H = 0.9, true h0 = 0.15. The old
+    # R²-maximising search railed to ~0 here because a, b and h0 trade off.
+    h0_true, brk = 0.15, 0.90
+    rng = np.random.default_rng(1)
+    stage = np.sort(rng.uniform(0.30, 2.2, 60))
+    x = stage - h0_true
+    q_low = 6.0 * x ** 1.4
+    a_high = (6.0 * (brk - h0_true) ** 1.4) / (brk - h0_true) ** 2.6
+    discharge = np.where(stage < brk, q_low, a_high * x ** 2.6)
+    discharge *= np.exp(rng.normal(0, 0.04, stage.size))
+
+    est = estimate_h0(stage, discharge)
+    assert 0.05 < est < 0.28  # near the truth, nowhere near a collapsed 0
+
+
+def test_fit_rating_curve_reports_h0_diagnostics_and_flags_a_railed_estimate():
+    df = _synthetic_curve(h0=0.30)
+    fit = fit_rating_curve(df)
+    assert "h0_diagnostics" in fit
+    assert fit["h0_diagnostics"]["railed"] is False
+
+    # True point of zero flow well below the datum (h0 = -0.8) sits past the
+    # search's lower bound, so the estimate rails there -> flagged + warned.
+    h = np.linspace(0.5, 4.0, 40)
+    deep = pd.DataFrame({
+        "Stage Above Bed (m)": h,
+        "Measured Discharge Q (m³/s)": 2.0 * (h + 0.8) ** 1.9,
+        "is_valid": True,
+    })
+    fit2 = fit_rating_curve(deep)
+    assert fit2["h0_diagnostics"]["railed"] is True
+    assert any("weakly identified" in w for w in fit2["warnings"])
+
+
+def test_single_power_law_on_a_kinked_channel_warns_to_use_segments():
+    df = _segmented_frame(break_stage=0.60)
+    fit = fit_rating_curve(df, segments=1)
+    assert any("log-log space" in w and "segments" in w for w in fit["warnings"])
+
+
+def test_leave_one_out_error_is_honest_about_out_of_sample_accuracy():
+    from rating_curve_automater.rating_curve_fitting import leave_one_out_error
+
+    rng = np.random.default_rng(4)
+    h = np.sort(rng.uniform(0.3, 1.6, 40))
+    q = 1.2 * (h - 0.15) ** 1.8 * np.exp(rng.normal(0, 0.05, 40))
+    q[10] *= 1.5  # one blunder
+    df = pd.DataFrame({"Stage Above Bed (m)": h, "Measured Discharge Q (m³/s)": q, "is_valid": True})
+
+    loo = leave_one_out_error(df, segments=1)
+    fit = fit_rating_curve(df, segments=1)
+
+    assert loo is not None and loo["n"] >= 8
+    assert set(loo) == {"n", "rmspe_pct", "bias_pct", "mae_pct", "p95_abs_pct"}
+    # out-of-sample error is real and at least as large as the in-sample miss
+    assert loo["rmspe_pct"] > 0
+    in_sample = 100 * np.sqrt(1 - fit["r_squared"])  # rough
+    assert loo["rmspe_pct"] >= in_sample * 0.5
+
+    # too few points -> None
+    assert leave_one_out_error(df.head(5)) is None
+
+
+def test_auto_fit_on_a_compound_channel_recovers_h0_and_the_break():
+    # Realistic gauging record: low-flow visits dominate. True h0 = 0.15, control
+    # break at H = 0.90. The estimated h0 must not collapse toward 0, and the
+    # auto fit must pick up the second control.
+    h0_true, brk = 0.15, 0.90
+    rng = np.random.default_rng(3)
+    stage = np.sort(0.20 + rng.beta(1.6, 2.4, 70) * 2.1)
+    x = np.maximum(stage - h0_true, 1e-9)
+    a_high = (8.0 * (brk - h0_true) ** 2.1) / (brk - h0_true) ** 2.7
+    discharge = np.where(stage < brk, 8.0 * x ** 2.1, a_high * x ** 2.7)
+    discharge *= np.exp(rng.normal(0, 0.06, stage.size))
+    df = pd.DataFrame({"Stage Above Bed (m)": stage,
+                       "Measured Discharge Q (m³/s)": discharge, "is_valid": True})
+
+    fit = fit_rating_curve(df, segments="auto", random_state=0)
+    assert fit["h0"] > 0.05                       # not collapsed
+    assert abs(fit["h0"] - h0_true) < 0.12
+    assert fit["is_segmented"] and fit["n_segments"] == 2
+    assert abs(fit["breakpoints"][0] - brk) < 0.25
+
+
 def test_fit_rating_curve_estimates_h0_when_missing():
     df = _synthetic_curve(h0=0.30)
 

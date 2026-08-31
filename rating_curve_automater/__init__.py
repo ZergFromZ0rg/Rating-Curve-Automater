@@ -32,8 +32,10 @@ from rating_curve_automater.field_measurement_validation import (  # noqa: E402
     clean_and_validate_measurements,
 )
 from rating_curve_automater.loader import LoadReport, load_measurements  # noqa: E402
+from rating_curve_automater.manning import manning_sanity_check  # noqa: E402
 from rating_curve_automater.rating_curve_fitting import (  # noqa: E402
     fit_rating_curve,
+    leave_one_out_error,
     predict_discharge,
 )
 from rating_curve_automater.rating_table import build_rating_table  # noqa: E402
@@ -48,5 +50,7 @@ __all__ = [
     "clean_and_validate_measurements",
     "fit_rating_curve",
     "predict_discharge",
+    "leave_one_out_error",
     "build_rating_table",
+    "manning_sanity_check",
 ]
