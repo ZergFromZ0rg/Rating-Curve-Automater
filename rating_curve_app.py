@@ -26,6 +26,7 @@ class RatingCurveApp:
         self.fit_summary = tk.StringVar(value="")
         self.log_scale_var = tk.BooleanVar(value=False)
         self.segments_var = tk.IntVar(value=1)
+        self.site_var = tk.StringVar(value="All sites")
 
         self._build_ui()
         self.show_page("input")
@@ -108,8 +109,15 @@ class RatingCurveApp:
         self.h0_entry.pack(side="left", padx=(8, 8))
         tk.Label(h0_row, text="leave blank to estimate from the data", bg="#2d2d2d", fg="#c8c8c8", font=("Helvetica", 10, "italic")).pack(side="left")
 
-        seg_row = tk.Frame(page, bg="#2d2d2d")
-        seg_row.pack(fill="x", padx=18, pady=(2, 2))
+        self.site_row = tk.Frame(page, bg="#2d2d2d")
+        tk.Label(self.site_row, text="Site:", bg="#2d2d2d", fg="white", font=("Helvetica", 11, "bold")).pack(side="left")
+        self.site_menu = tk.OptionMenu(self.site_row, self.site_var, "All sites")
+        self.site_menu.configure(bg="#d9d9d9", fg="#1d1d1d", font=("Helvetica", 10), highlightthickness=0)
+        self.site_menu.pack(side="left", padx=(8, 0))
+
+        self.seg_row = tk.Frame(page, bg="#2d2d2d")
+        self.seg_row.pack(fill="x", padx=18, pady=(2, 2))
+        seg_row = self.seg_row
         tk.Label(seg_row, text="Segments:", bg="#2d2d2d", fg="white", font=("Helvetica", 11, "bold")).pack(side="left")
         tk.Radiobutton(seg_row, text="1 (single power law)", variable=self.segments_var, value=1,
                        bg="#2d2d2d", fg="white", selectcolor="#2d2d2d", activebackground="#2d2d2d",
@@ -246,6 +254,8 @@ class RatingCurveApp:
         if not listed:
             self._log(self.status_box, "No validation flags detected.")
 
+        self._populate_sites(result.sites)
+
         self.input_status.config(
             text="Loaded with layout warnings - check the status panel."
             if needs_review
@@ -265,6 +275,18 @@ class RatingCurveApp:
                 else "User stopped the process.",
             )
 
+    def _populate_sites(self, sites):
+        menu = self.site_menu["menu"]
+        menu.delete(0, "end")
+        if len(sites) > 1:
+            for name in ["All sites", *sites]:
+                menu.add_command(label=name, command=lambda v=name: self.site_var.set(v))
+            self.site_var.set("All sites")
+            self.site_row.pack(fill="x", padx=18, pady=(2, 2), before=self.seg_row)
+        else:
+            self.site_var.set("All sites")
+            self.site_row.pack_forget()
+
     def _run_fit(self):
         if self.workflow.cleaned_df is None:
             self._log(self.status_box, "Please validate a dataset first.")
@@ -280,9 +302,14 @@ class RatingCurveApp:
         else:
             h0_override = None
 
+        site = self.site_var.get()
+        site = None if site in ("", "All sites") else site
+
         try:
             self._log(self.status_box, "Continuing with log-log regression.", clear=True)
-            outcome = self.workflow.run_fit(h0=h0_override, segments=self.segments_var.get())
+            outcome = self.workflow.run_fit(
+                h0=h0_override, segments=self.segments_var.get(), site=site
+            )
         except Exception as exc:
             self._log(self.status_box, f"Regression failed: {exc}")
             return
@@ -295,10 +322,11 @@ class RatingCurveApp:
 
     def _draw_preview(self):
         params = self.workflow.fit_params
-        if params is None or self.workflow.cleaned_df is None:
+        preview_df = self.workflow.fit_df
+        if params is None or preview_df is None:
             return
         make_rating_curve_figure(
-            self.workflow.cleaned_df,
+            preview_df,
             a=params["a"],
             b=params["b"],
             h0=params["h0"],

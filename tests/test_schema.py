@@ -1,13 +1,18 @@
+import textwrap
+
 import pandas as pd
 import pytest
 
 from src.schema import (
+    BUILTIN_ALIASES,
     DATE,
     DISCHARGE_CMS,
     STAGE_M,
     apply_mapping,
     ensure_canonical,
+    load_alias_config,
     normalize_header,
+    reload_aliases,
     resolve_columns,
 )
 
@@ -59,6 +64,34 @@ def test_apply_mapping_renames_and_orders():
     out = apply_mapping(df, mapping)
     assert list(out.columns)[:3] == [DATE, STAGE_M, DISCHARGE_CMS]
     assert "extra" in out.columns
+
+
+def test_alias_config_merges_user_file(tmp_path):
+    cfg = tmp_path / "aliases.yaml"
+    cfg.write_text(textwrap.dedent("""
+        stage_m: [pool elevation, gauge board]
+        discharge_cms: [adcp discharge]
+        bogus_field: [ignored]
+    """))
+
+    merged = load_alias_config(cfg)
+    assert "pool elevation" in merged[STAGE_M]
+    assert "adcp discharge" in merged[DISCHARGE_CMS]
+    assert "stage" in merged[STAGE_M]  # built-ins retained
+    assert "bogus_field" not in merged
+
+    try:
+        reload_aliases(cfg)
+        mapping = resolve_columns(["Date", "Pool Elevation (m)", "ADCP Discharge (m3/s)"])
+        assert mapping.is_complete
+        assert mapping.fields[STAGE_M] == "Pool Elevation (m)"
+    finally:
+        reload_aliases()
+
+
+def test_alias_config_missing_file_returns_builtins():
+    merged = load_alias_config("/no/such/file.yaml")
+    assert merged[STAGE_M] == BUILTIN_ALIASES[STAGE_M]
 
 
 def test_ensure_canonical_idempotent_and_subset_required():

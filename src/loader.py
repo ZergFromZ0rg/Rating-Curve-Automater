@@ -13,11 +13,15 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
 from src.schema import (
     DATE,
     DISCHARGE_CMS,
+    NOTES,
     REQUIRED_FIELDS,
+    SITE,
     STAGE_M,
+    TIME,
     ColumnMapping,
     apply_mapping,
     resolve_columns,
@@ -287,17 +291,34 @@ def load_measurements(
     if mapping.is_complete:
         canonical_df = apply_mapping(df, mapping)
 
-        stage_conv = detect_stage_unit(mapping.fields[STAGE_M])
-        discharge_conv = detect_discharge_unit(mapping.fields[DISCHARGE_CMS])
-        units = {STAGE_M: stage_conv, DISCHARGE_CMS: discharge_conv}
+        # --- structural: drop total/average footer rows -----------------
+        canonical_df, dropped = drop_footer_rows(canonical_df, [DATE, SITE, NOTES])
+        if dropped:
+            messages.append(f"Dropped {dropped} total/summary row(s).")
 
-        if convert_units:
-            for canonical, conv in ((STAGE_M, stage_conv), (DISCHARGE_CMS, discharge_conv)):
-                if conv.detected and conv.factor != 1.0:
-                    canonical_df[canonical] = pd.to_numeric(
-                        canonical_df[canonical], errors="coerce"
-                    ) * conv.factor
-                    messages.append(f"Converted {canonical} from {conv.label} to SI.")
+        # --- dates: Excel serials, ambiguous day/month, separate time ---
+        time_series = canonical_df[TIME] if TIME in canonical_df.columns else None
+        canonical_df[DATE] = coerce_datetime(canonical_df[DATE], time_series)
+        if time_series is not None:
+            canonical_df = canonical_df.drop(columns=[TIME])
+            messages.append("Combined separate date and time columns.")
+
+        # --- numeric: NA tokens, thousands sep, decimal comma, censored -
+        for canonical, conv in (
+            (STAGE_M, detect_stage_unit(mapping.fields[STAGE_M])),
+            (DISCHARGE_CMS, detect_discharge_unit(mapping.fields[DISCHARGE_CMS])),
+        ):
+            units[canonical] = conv
+            cleaned_col, censored = clean_numeric_series(canonical_df[canonical])
+            if convert_units and conv.detected and conv.factor != 1.0:
+                cleaned_col = cleaned_col * conv.factor
+                messages.append(f"Converted {canonical} from {conv.label} to SI.")
+            canonical_df[canonical] = cleaned_col
+            if censored.any():
+                messages.append(
+                    f"{int(censored.sum())} {canonical} value(s) were censored "
+                    f"(e.g. '<x') and taken at face value."
+                )
     else:
         canonical_df = df
         missing = ", ".join(mapping.unresolved_required)

@@ -1,0 +1,17 @@
+# Extra column-header aliases, merged with the built-in list in src/schema.py.
+#
+# Each key is a canonical field; each value is a list of extra header phrases
+# that should map to it. Matching is case-insensitive and ignores unit brackets
+# and punctuation ("Gauge Height (m)" is compared as "gauge height").
+#
+# Edit this file (or point $RATING_CURVE_ALIASES / ~/.rating_curve_automater/
+# column_aliases.yaml at your own) and the loader picks it up on next run.
+# Anything malformed here is ignored with a warning; the built-ins still apply.
+
+date: []          # e.g. [visit date, field date]
+time: []          # e.g. [start time]
+stage_m: []       # e.g. [gauge board, staff plate, pool elevation]
+discharge_cms: [] # e.g. [q gauged, adcp discharge]
+quality: []       # e.g. [confidence, review status]
+notes: []         # e.g. [field remarks, hydrographer notes]
+site: []          # e.g. [reach, catchment, bore id]
