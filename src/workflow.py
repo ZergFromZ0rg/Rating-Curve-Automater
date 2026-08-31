@@ -68,6 +68,14 @@ class FitOutcome:
     params: dict
     site: str | None = None
 
+    @property
+    def warnings(self) -> list[str]:
+        return list(self.params.get("warnings", []))
+
+    @property
+    def is_plausible(self) -> bool:
+        return self.params.get("is_plausible", True)
+
     def summary_line(self) -> str:
         p = self.params
         source = "estimated" if p["h0_estimated"] else "user-specified"
@@ -76,7 +84,10 @@ class FitOutcome:
         else:
             head = f"Q = {p['a']:.6f} * (H - {p['h0']:.3f})^{p['b']:.6f}"
         prefix = f"[{self.site}] " if self.site else ""
-        return f"{prefix}{head}  | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
+        line = f"{prefix}{head}  | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
+        if self.warnings:
+            line = "⚠ " + line + "\n   " + "\n   ".join(self.warnings)
+        return line
 
 
 def _sites_in(df: pd.DataFrame) -> list[str]:

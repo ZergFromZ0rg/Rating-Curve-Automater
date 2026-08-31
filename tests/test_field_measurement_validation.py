@@ -68,6 +68,33 @@ def test_clean_measurements_to_csv_roundtrip(tmp_path):
     assert int(cleaned["is_valid"].sum()) == 2
 
 
+def test_repeated_stage_value_is_flagged_as_placeholder():
+    df = pd.DataFrame({
+        "Date": pd.date_range("2025-01-01", periods=6, freq="MS"),
+        "Stage Above Bed (m)": [0.5, 0.7, 0.9, 1.212, 1.212, 1.212],
+        "Measured Discharge Q (m³/s)": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+    })
+
+    cleaned = clean_and_validate_measurements(df)
+
+    assert cleaned["is_valid"].tolist() == [True, True, True, False, False, False]
+    assert "repeats 3x" in cleaned.loc[3, "validation_notes"]
+
+
+def test_repeated_stage_is_per_site():
+    df = pd.DataFrame({
+        "Date": list(pd.date_range("2025-01-01", periods=4, freq="MS")) * 2,
+        "Site": ["A"] * 4 + ["B"] * 4,
+        "Stage Above Bed (m)": [1.0, 1.0, 1.0, 0.9, 0.4, 0.5, 0.6, 0.7],
+        "Measured Discharge Q (m³/s)": [0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 0.4],
+    })
+
+    cleaned = clean_and_validate_measurements(df)
+    # site A's three identical 1.0 rows are dropped; site B untouched
+    assert cleaned.loc[cleaned["site"] == "A", "is_valid"].tolist() == [False, False, False, True]
+    assert cleaned.loc[cleaned["site"] == "B", "is_valid"].all()
+
+
 def test_invalid_rows_do_not_carry_warnings():
     df = pd.DataFrame(
         {

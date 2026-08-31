@@ -112,6 +112,58 @@ def estimate_h0(
 
 MIN_SEGMENT_POINTS = 4
 
+#: Plausibility thresholds for :func:`assess_fit`.
+MIN_POINTS_RELIABLE = 5
+MIN_R_SQUARED = 0.5
+MIN_ABS_LOG_CORR = 0.3
+
+
+class ImplausibleRatingCurve(ValueError):
+    """Raised by ``fit_rating_curve(..., strict=True)`` for a non-physical fit."""
+
+    def __init__(self, warnings: list[str]) -> None:
+        self.warnings = warnings
+        super().__init__("; ".join(warnings))
+
+
+def assess_fit(fit: dict, stage: np.ndarray, discharge: np.ndarray) -> tuple[list[str], bool]:
+    """Return ``(warnings, has_critical)`` for a fitted curve.
+
+    Critical = the relationship is not a rating curve at all (b <= 0, or stage
+    and discharge uncorrelated). Non-critical = merely weak (low R², few points).
+    """
+    warnings_out: list[str] = []
+    critical = False
+
+    if fit.get("is_segmented"):
+        b_value = min(seg["b"] for seg in fit["segments"])
+    else:
+        b_value = fit["b"]
+    if b_value <= 0:
+        warnings_out.append(
+            f"fitted exponent b = {b_value:.3f} ≤ 0 — discharge does not increase "
+            f"with stage; this is not a valid rating curve"
+        )
+        critical = True
+
+    x = np.asarray(stage, dtype=float) - fit["h0"]
+    mask = (x > 0) & (np.asarray(discharge, dtype=float) > 0)
+    if int(mask.sum()) >= 3:
+        with np.errstate(all="ignore"):
+            corr = float(np.corrcoef(np.log(x[mask]), np.log(discharge[mask]))[0, 1])
+        if np.isfinite(corr) and abs(corr) < MIN_ABS_LOG_CORR:
+            warnings_out.append(
+                f"stage and discharge are essentially uncorrelated (r = {corr:.2f})"
+            )
+            critical = True
+
+    if fit["r_squared"] < MIN_R_SQUARED:
+        warnings_out.append(f"poor fit: R² = {fit['r_squared']:.2f}")
+    if fit["n_points"] < MIN_POINTS_RELIABLE:
+        warnings_out.append(f"only {fit['n_points']} point(s) — the fit is unreliable")
+
+    return warnings_out, critical
+
 
 def predict_discharge(fit: dict, stage) -> np.ndarray:
     """Evaluate a fitted rating curve (single or segmented) at given stages."""
@@ -234,6 +286,7 @@ def fit_rating_curve(
     h0: float | None = None,
     estimate_h0_if_missing: bool = True,
     segments: int = 1,
+    strict: bool = False,
 ) -> dict:
     """Fit a power-law rating curve: ``Q = a * (H - h0)^b``.
 
@@ -268,8 +321,15 @@ def fit_rating_curve(
             h0 = DEFAULT_H0
 
     if segments == 1:
-        return _fit_single(stage, discharge, float(h0), h0_estimated)
-    return _fit_two_segments(stage, discharge, float(h0), h0_estimated)
+        fit = _fit_single(stage, discharge, float(h0), h0_estimated)
+    else:
+        fit = _fit_two_segments(stage, discharge, float(h0), h0_estimated)
+
+    fit["warnings"], critical = assess_fit(fit, stage, discharge)
+    fit["is_plausible"] = not critical
+    if strict and critical:
+        raise ImplausibleRatingCurve(fit["warnings"])
+    return fit
 
 
 def main() -> None:
@@ -280,6 +340,7 @@ def main() -> None:
     parser.add_argument("--h0", type=float, default=None, help="Stage of zero flow (default: estimate from data).")
     parser.add_argument("--segments", type=int, default=1, choices=(1, 2), help="1 = single power law, 2 = piecewise.")
     parser.add_argument("--site", type=str, default=None, help="Fit only rows with this value in the 'site' column.")
+    parser.add_argument("--strict", action="store_true", help="Exit non-zero if the fit is not a plausible rating curve.")
     args = parser.parse_args()
 
     csv_path = Path(args.csv) if args.csv else Path(__file__).resolve().parent.parent / "cleaned_measurements.csv"
@@ -291,7 +352,10 @@ def main() -> None:
             raise SystemExit("No 'site' column in the CSV.")
         df = df[df[SITE].astype(str).str.strip() == args.site]
         print(f"Site filter: {args.site} ({len(df)} rows)")
-    fit = fit_rating_curve(df, h0=args.h0, segments=args.segments)
+    try:
+        fit = fit_rating_curve(df, h0=args.h0, segments=args.segments, strict=args.strict)
+    except ImplausibleRatingCurve as exc:
+        raise SystemExit(f"Implausible rating curve:\n  - " + "\n  - ".join(exc.warnings))
 
     print("Rating curve fit results")
     print(f"h0 = {fit['h0']:.3f} ({'estimated' if fit['h0_estimated'] else 'fixed'})")
@@ -308,6 +372,11 @@ def main() -> None:
     print(f"Overall R^2 = {fit['r_squared']:.4f}")
     print(f"points = {fit['n_points']}")
     print(f"Equation: {fit['equation']}")
+    if fit["warnings"]:
+        marker = "NOT A PLAUSIBLE RATING CURVE" if not fit["is_plausible"] else "warnings"
+        print(f"\n[{marker}]")
+        for warning in fit["warnings"]:
+            print(f"  - {warning}")
 
 
 if __name__ == "__main__":

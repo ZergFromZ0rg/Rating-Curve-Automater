@@ -8,6 +8,9 @@ from src.cleaning import clean_numeric_series, coerce_datetime, drop_footer_rows
 from src.schema import DATE, DISCHARGE_CMS, NOTES, QUALITY, SITE, STAGE_M, TIME, ensure_canonical
 
 REJECT_QUALITY_VALUES = {"bad", "poor", "unreliable", "reject", "rejected"}
+#: An identical stage value repeated this many times (per site) is treated as a
+#: placeholder / gauge fault, not a real measurement.
+REPEATED_STAGE_MIN = 3
 WARN_QUALITY_VALUES = {"fair", "questionable", "estimated", "provisional"}
 WARN_NOTE_KEYWORDS = (
     "backwater",
@@ -25,6 +28,18 @@ def _parse_quality(value: object) -> str:
     if pd.isna(value):
         return ""
     return str(value).strip().lower()
+
+
+def _stuck_stage_mask(frame: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Flag rows whose stage value repeats >= REPEATED_STAGE_MIN times per site."""
+    mask = pd.Series(False, index=frame.index)
+    count = pd.Series(0, index=frame.index)
+    site_key = frame[SITE].astype(str) if SITE in frame.columns else pd.Series("", index=frame.index)
+    for _, idx in frame.groupby([site_key, frame[STAGE_M]], dropna=True).groups.items():
+        if len(idx) >= REPEATED_STAGE_MIN:
+            mask.loc[idx] = True
+            count.loc[idx] = len(idx)
+    return mask, count
 
 
 def clean_and_validate_measurements(
@@ -74,6 +89,9 @@ def clean_and_validate_measurements(
         bad_quality = result[QUALITY].map(_parse_quality).isin(REJECT_QUALITY_VALUES)
         invalid_mask |= bad_quality
 
+    stuck_mask, stuck_count = _stuck_stage_mask(result)
+    invalid_mask |= stuck_mask
+
     result.loc[invalid_mask, "is_valid"] = False
 
     def note_for_row(row: pd.Series) -> str:
@@ -86,6 +104,11 @@ def clean_and_validate_measurements(
             reasons.append("discharge missing or negative")
         if has_quality and _parse_quality(row[QUALITY]) in REJECT_QUALITY_VALUES:
             reasons.append("quality flag indicates poor data")
+        if stuck_mask.get(row.name, False):
+            reasons.append(
+                f"stage {row[STAGE_M]:g} repeats {int(stuck_count[row.name])}x "
+                f"(likely placeholder / gauge fault)"
+            )
         return "; ".join(reasons)
 
     def warning_for_row(row: pd.Series) -> str:

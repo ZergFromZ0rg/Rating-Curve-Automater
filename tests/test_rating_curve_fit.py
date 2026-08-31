@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from src.rating_curve_fitting import (
+    ImplausibleRatingCurve,
     estimate_h0,
     fit_rating_curve,
     predict_discharge,
@@ -126,6 +127,39 @@ def test_two_segments_with_too_few_points_raises():
     df = _synthetic_curve(n=6)
     with pytest.raises(ValueError):
         fit_rating_curve(df, h0=0.18, segments=2)
+
+
+def test_plausible_fit_has_no_warnings():
+    result = fit_rating_curve(_synthetic_curve(), h0=0.18)
+    assert result["is_plausible"] is True
+    assert result["warnings"] == []
+
+
+def test_inverse_relationship_is_flagged_and_can_raise():
+    # discharge falls as stage rises -> not a rating curve
+    df = pd.DataFrame({
+        "Stage Above Bed (m)": [0.58, 0.62, 0.87, 0.95, 1.05],
+        "Measured Discharge Q (m³/s)": [0.52, 0.13, 0.05, 0.04, 0.03],
+        "is_valid": True,
+    })
+
+    fit = fit_rating_curve(df, h0=0.4)
+    assert fit["is_plausible"] is False
+    assert any("b =" in w and "≤ 0" in w for w in fit["warnings"])
+
+    with pytest.raises(ImplausibleRatingCurve):
+        fit_rating_curve(df, h0=0.4, strict=True)
+
+
+def test_too_few_points_is_a_non_critical_warning():
+    df = pd.DataFrame({
+        "Stage Above Bed (m)": [0.25, 0.6, 1.0],
+        "Measured Discharge Q (m³/s)": [0.05, 0.3, 1.0],
+        "is_valid": True,
+    })
+    fit = fit_rating_curve(df, h0=0.18)
+    assert fit["is_plausible"] is True  # not critical
+    assert any("only 3 point" in w for w in fit["warnings"])
 
 
 def test_select_valid_measurements_applies_flag_and_dropna():
