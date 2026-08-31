@@ -10,6 +10,11 @@ Q = a · (H − h0)^b
 by log–log linear regression, flags points the model fits poorly, and exports a
 formatted Excel report with an embedded rating-curve chart.
 
+> **Provisional software, no warranty.** Every rating curve, uncertainty band and
+> shift flag is a decision aid — review it as a qualified hydrographer before
+> operational use. No open-source licence is set yet: all rights reserved,
+> contact the author for reuse terms.
+
 ## Install
 
 ```bash
@@ -20,8 +25,7 @@ pip install -e ".[app]"       # + the Streamlit web UI
 pip install -e ".[app,dev]"   # + pytest   (same as: pip install -r requirements.txt)
 ```
 
-Needs Python ≥ 3.10. No open-source licence is set yet: all rights reserved,
-contact the author for reuse terms.
+Needs Python ≥ 3.10.
 
 ## Usage
 
@@ -37,10 +41,12 @@ Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the p
 2. **Column mapping** – each field is pre-filled from auto-detection; override any that are wrong from the dropdowns (the page re-runs live).
 3. **Detected layout** – expandable panel with the chosen sheet, header row, units and a preview; opens automatically when confidence is low.
 4. **Validation** – valid / invalid / warning counts, with expandable tables of the flagged rows.
-5. **Fit** – site picker (if the workbook has a `Site` column), `h0` (estimate or enter), 1 or 2 segments, uncertainty threshold; shows `a` / `b` / `h0` / R² and a rating-curve plot (log-log toggle).
-6. **Export** – download the multi-sheet Excel report.
+5. **Fit** – site picker (if the workbook has a `Site` column), `h0` (estimate or enter), segments (1 / 2 / 3 / auto-by-BIC), discharge-uncertainty %, rating-table step; shows `a` / `b` / `h0` / R², the `b` confidence interval, and a rating-curve plot with shaded confidence / prediction bands (log-log toggle).
+6. **Export** – download the multi-sheet Excel report and the stage→discharge rating table (CSV), with a preview.
 
-The web UI and the CLI are thin views over `rating_curve_automater/workflow.py`.
+If the gaugings carry dates, a **residuals-over-time** panel and a rating-shift notice appear under the plot.
+
+Both the web UI and the CLI are thin views over `rating_curve_automater/workflow.py`.
 
 ### Command line
 
@@ -56,16 +62,32 @@ rca validate --default-dataset
 # Fit the curve from a cleaned CSV (single or piecewise; optional site filter)
 rca fit
 rca fit --segments 2 --h0 0.18
+rca fit --segments auto            # BIC picks the segment count
 rca fit --site "Upper Reach"
+rca fit --uncertainty-pct 5 --bootstrap 2000 --seed 0
 
-# Fit + write the Excel report
+# Fit + write the Excel report (+ optional stage->Q rating table CSV)
 rca report
+rca report --rating-table-csv rating_table.csv --step 0.01
+```
+
+### Library
+
+```python
+from rating_curve_automater import RatingCurveWorkflow
+
+wf = RatingCurveWorkflow()
+wf.load_and_validate("gaugings.xlsx")
+outcome = wf.run_fit(segments="auto")        # fit + uncertainty bands + drift check
+wf.export_report("report.xlsx")              # multi-sheet Excel + rating table
+table = wf.rating_table(step=0.01)           # stage -> discharge DataFrame
 ```
 
 ## Input format
 
 The tool accepts `.xlsx`, `.xls` and `.csv`. It needs a **date**, a **stage**
-and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
+and a **discharge** column; `Quality`, `Field Notes`, `Site` and
+`Discharge uncertainty` are optional.
 `rating_curve_automater/loader.load_measurements()` handles the variability:
 
 - **Sheet** – if not named, each sheet is scored by how many required fields its
@@ -98,6 +120,14 @@ and a **discharge** column; `Quality`, `Field Notes` and `Site` are optional.
   time (`workflow.run_fit(site=…)`, `--site`, or the GUI picker).
 - **Placeholder stages** – an identical stage value repeated ≥ 3 times per site
   (a common "gauge lost / out of range" fill) is flagged invalid.
+- **Discharge uncertainty** – an optional per-gauging measurement-uncertainty
+  column (`Discharge uncertainty (%)`, `Q uncertainty`, …) is detected and
+  read as a percentage (`"8%"`, `0.08` and `8` all mean ±8 %). When present and
+  its values vary, the curve is fitted by **weighted least squares** so noisier
+  gaugings pull it less; a uniform column (or none) leaves the fit identical to
+  plain OLS. Rows with no value fall back to the assumed default
+  (`--uncertainty-pct`, `run_fit(discharge_uncertainty_pct=…)`, or the GUI
+  field; default 7 %).
 - **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`
   forces a mapping when detection is wrong.
 - **Survey block** – free-text rows above the table (T-post / bed elevations,
@@ -122,10 +152,52 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 - `h0` (stage of zero flow) is estimated by a golden-section search that
   maximises the fit R², bounded just below the lowest observed stage. Pass an
   explicit `h0` to override.
-- `segments=2` fits a piecewise curve: it searches every candidate breakpoint
-  stage (each side keeping ≥ 15% of the points, min 4) for the one that
-  minimises the combined residual sum of squares. `h0` is shared across
-  segments. `predict_discharge(fit, stage)` evaluates either model kind.
+- **Weighting** – the log–log regression weights each gauging by
+  `1 / (fractional discharge uncertainty)`. With no uncertainty column and one
+  assumed percentage the weights are uniform (ordinary least squares); a
+  varying per-point column makes it a genuine weighted fit. `h0` estimation and
+  the piecewise fit use the same weights. The fit dict records
+  `uncertainty_source`, `mean_uncertainty_pct` and `weighted`. A weighted fit is
+  also judged on a **weighted R²** (`r_squared_weighted`), so a deliberately
+  down-weighted outlier no longer trips the "poor fit" warning.
+- **Confidence & prediction bands** – `fit_rating_curve(..., n_bootstrap=1000)`
+  (on by default in the web UI / `--bootstrap`) runs a wild residual bootstrap in
+  log space, re-fitting the curve with `h0` (and any breakpoint) held fixed and
+  the same weights. It returns `fit["bands"]`: a dense stage grid with a
+  **confidence** band (how well the mean curve is known) and a wider
+  **prediction** band (where the next gauging would fall), plus `ci_level`
+  intervals on `a` and `b`. The band spans the observed stage range only – it is
+  not an extrapolation tool. The web UI shade it on the plot and the Excel report
+  gets a **Rating Curve Band** sheet. Needs ≥ 4 usable gaugings.
+- **Temporal drift / rating shift** – when the gaugings carry dates,
+  `assess_temporal_drift` (always run; `fit["drift"]`) fits the curve's
+  log-residuals against gauging date and tests two things with a permutation
+  test: a linear **time trend** (`trend_pct_per_year`) and whether the most
+  recent ~12 months of gaugings sit systematically off the curve
+  (`recent_mean_pct`). The `flag` is `none` / `possible` / `likely`; a material
+  trend (≥ 3 %/yr) or recent bias (≥ 7 %) that is also significant → `likely`,
+  with a message pointing at scour vs aggradation and suggesting a stage shift
+  or re-fit. The web UI show a residual-vs-date plot; the report gets a
+  **Residuals Over Time** sheet (with the per-gauging percent difference and
+  stage shift). Needs ≥ 6 dated gaugings over ≥ 45 days.
+- **Rating table** – `build_rating_table(fit, step=0.01, stage_min=…, stage_max=…)`
+  tabulates `Q` (and the confidence / prediction bounds) against stage on a
+  fixed grid – the lookup table applied to a continuous stage record. It
+  defaults to the gauged stage range; rows outside it are kept but flagged
+  `Within gauged range = False` and their band columns left blank. Ships as the
+  **Rating Table** sheet in the Excel report and a standalone CSV
+  (`export_rating_table_csv`, `--rating-table-csv`, or the GUI download).
+- **Piecewise (multi-control) curve** – `segments=N` (N ≥ 2) fits a
+  **continuous** piecewise power law: a linear spline in
+  `(ln(H − h0), ln Q)` space with N − 1 breakpoints chosen by forward
+  selection (each segment keeps ≥ max(4, 10%) of the gaugings across ≥ 2
+  distinct stages). `segments="auto"` tries 1..`max_segments` (default 4) and
+  keeps the count that minimises BIC (or `segment_criterion="aic"`), so the
+  curve only gains a segment it can justify — on the bundled single-control
+  dataset auto returns 1 segment. The curve has no jump at a breakpoint. The
+  fit carries `breakpoints` (list), `n_segments`, and a `segments` list of
+  per-segment `a`/`b`; `predict_discharge(fit, stage)` evaluates any kind
+  (`rating_curve_automater/piecewise.py`).
 - The fit and the report operate on the same valid-row set
   (`select_valid_measurements`), and the report reuses the fit's R².
 - **Plausibility check** – every fit is assessed (`assess_fit`). A **critical**
@@ -149,7 +221,11 @@ but surfaced in the flag list (`has_warning` / `warning_notes` columns).
 | `rating_curve_automater/reshape.py` | Detect + unpivot wide multi-station layouts |
 | `rating_curve_automater/loader.py` | `load_measurements()` — sheet/header/column/unit detection + `LoadReport` |
 | `rating_curve_automater/field_measurement_validation.py` | Validation, warning tier |
-| `rating_curve_automater/rating_curve_fitting.py` | `h0` estimation and power-law fit |
+| `rating_curve_automater/rating_curve_fitting.py` | `h0` estimation, (weighted) power-law fit, plausibility check |
+| `rating_curve_automater/rating_curve_uncertainty.py` | Bootstrap confidence / prediction bands |
+| `rating_curve_automater/piecewise.py` | Continuous N-segment power law, BIC segment selection |
+| `rating_curve_automater/rating_curve_drift.py` | Residual-vs-date trend + rating-shift flag |
+| `rating_curve_automater/rating_table.py` | Stage→discharge lookup table (Excel sheet + CSV) |
 | `rating_curve_automater/rating_curve_report.py` | Excel report + chart |
 | `rating_curve_automater/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |
 | `rating_curve_automater/data/` | Bundled synthetic practice dataset (`rca validate --default-dataset`) |

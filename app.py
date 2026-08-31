@@ -18,7 +18,7 @@ import pandas as pd
 import streamlit as st
 
 from rating_curve_automater.loader import load_measurements
-from rating_curve_automater.rating_curve_plot import make_rating_curve_figure
+from rating_curve_automater.rating_curve_plot import make_rating_curve_figure, make_residual_time_figure
 from rating_curve_automater.schema import (
     ALL_FIELDS,
     DATE,
@@ -27,6 +27,8 @@ from rating_curve_automater.schema import (
     REQUIRED_FIELDS,
     STAGE_M,
 )
+from rating_curve_automater.rating_curve_fitting import DEFAULT_DISCHARGE_UNCERTAINTY_PCT
+from rating_curve_automater.rating_table import DEFAULT_STAGE_STEP_M
 from rating_curve_automater.workflow import DEFAULT_UNCERTAINTY_THRESHOLD, RatingCurveWorkflow
 
 st.set_page_config(page_title="Rating Curve Automater", page_icon="📈", layout="wide")
@@ -64,18 +66,26 @@ def fit_and_report(
     segments: int,
     site: str | None,
     threshold: float,
+    uncertainty_pct: float,
+    rating_step: float,
+    method: str,
 ):
     wf = RatingCurveWorkflow()
     wf.load_and_validate(
         path, sheet_name=sheet, column_overrides=dict(overrides) or None, header_row=header_row
     )
-    outcome = wf.run_fit(h0=h0, segments=segments, site=site)
+    outcome = wf.run_fit(
+        h0=h0, segments=segments, site=site,
+        discharge_uncertainty_pct=uncertainty_pct, method=method,
+    )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as handle:
         out_path = handle.name
-    wf.export_report(out_path, uncertainty_threshold=threshold)
+    wf.export_report(out_path, uncertainty_threshold=threshold, rating_table_step=rating_step)
     report_bytes = Path(out_path).read_bytes()
     Path(out_path).unlink(missing_ok=True)
-    return outcome, wf.fit_df, report_bytes
+    rating_table = wf.rating_table(step=rating_step)
+    rating_csv = rating_table.to_csv(index=False).encode("utf-8")
+    return outcome, wf.fit_df, report_bytes, rating_table, rating_csv
 
 
 def _friendly(df: pd.DataFrame) -> pd.DataFrame:
@@ -190,7 +200,20 @@ if result.warning_count:
 # 6. Fit
 # --------------------------------------------------------------------------- #
 st.subheader("Fit")
-f1, f2, f3, f4 = st.columns(4)
+
+method_label = st.radio(
+    "Fit method",
+    ["Least squares", "Bayesian"],
+    horizontal=True,
+    help=(
+        "Least squares: fast log-log regression (weighted when a discharge-uncertainty "
+        "column varies). Bayesian: thodson-usgs `ratingcurve` (PyMC) — needs "
+        "`pip install \"rating-curve-automater[bayesian]\"`; the first fit takes ~1 min."
+    ),
+)
+method = "bayesian" if method_label == "Bayesian" else "ols"
+
+f1, f2, f3, f4, f5 = st.columns(5)
 
 site = None
 if result.is_multi_site:
@@ -202,14 +225,38 @@ elif result.sites:
 estimate_h0 = f2.checkbox("Estimate h0", value=True)
 h0 = None if estimate_h0 else f2.number_input("h0 (m)", value=0.18, step=0.01, format="%.3f")
 
-segments = f3.radio("Segments", [1, 2], format_func=lambda n: "1 — single" if n == 1 else "2 — piecewise")
+segments = f3.radio(
+    "Segments",
+    [1, 2, 3, "auto"],
+    format_func=lambda n: {1: "1 — single", 2: "2 — piecewise", 3: "3 — piecewise", "auto": "auto (BIC)"}[n],
+    help="Number of joined power-law segments, or 'auto' to let BIC pick 1–4.",
+)
 threshold = f4.slider("Uncertainty threshold", 0.05, 1.0, DEFAULT_UNCERTAINTY_THRESHOLD, 0.05)
+uncertainty_pct = f5.number_input(
+    "Discharge uncertainty (±%)",
+    min_value=0.5, max_value=100.0, value=float(DEFAULT_DISCHARGE_UNCERTAINTY_PCT), step=0.5,
+    help=(
+        "Assumed measurement uncertainty for gaugings with no value in a "
+        "'Discharge uncertainty (±%)' column. Map that column above to weight the "
+        "fit point-by-point — noisier gaugings then pull the curve less."
+    ),
+)
+rating_step = f5.number_input(
+    "Rating table step (m)",
+    min_value=0.001, max_value=1.0, value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
+    help="Stage increment for the stage→discharge lookup table (Excel sheet + CSV download).",
+)
 
 try:
-    outcome, fit_df, report_bytes = fit_and_report(
-        file_key, path, sheet, header_row, tuple(sorted(overrides.items())),
-        h0, segments, site, threshold,
-    )
+    with st.spinner("Sampling the posterior… (~1 min on the first Bayesian fit)" if method == "bayesian"
+                    else "Fitting…"):
+        outcome, fit_df, report_bytes, rating_table, rating_csv = fit_and_report(
+            file_key, path, sheet, header_row, tuple(sorted(overrides.items())),
+            h0, segments, site, threshold, uncertainty_pct, rating_step, method,
+        )
+except ImportError as exc:
+    st.error(str(exc))
+    st.stop()
 except Exception as exc:  # noqa: BLE001
     st.error(f"Fit failed: {exc}")
     st.stop()
@@ -222,11 +269,43 @@ elif outcome.warnings:
 else:
     st.success(f"Fitted: {p['equation']}  |  R² = {p['r_squared']:.4f}")
 
+bands = p.get("bands")
 k1, k2, k3, k4 = st.columns(4)
+b_delta = None
+if bands and bands.get("b_ci"):
+    b_delta = f"{int(round(bands['level'] * 100))}% CI [{bands['b_ci'][0]:.3f}, {bands['b_ci'][1]:.3f}]"
 k1.metric("a", f"{p['a']:.4f}")
-k2.metric("b", f"{p['b']:.4f}")
+k2.metric("b", f"{p['b']:.4f}", b_delta, delta_color="off")
 k3.metric("h0 (m)", f"{p['h0']:.3f}", "estimated" if p["h0_estimated"] else "fixed")
-k4.metric("R²", f"{p['r_squared']:.4f}")
+r2_label = "weighted R²" if p.get("weighted") else "R²"
+r2_value = p.get("r_squared_weighted") if p.get("weighted") else p["r_squared"]
+k4.metric(r2_label, f"{r2_value:.4f}")
+
+if p.get("method") == "bayesian":
+    note = p.get("bayes", {}).get("auto_segments_note")
+    st.caption("🔬 Bayesian fit (thodson-usgs `ratingcurve`, PyMC ADVI)." + (f" {note}" if note else ""))
+
+if bands:
+    pct = int(round(bands["level"] * 100))
+    src = f"{bands['n_success']} posterior draws" if bands.get("kind") == "posterior" else f"{bands['n_success']} bootstrap refits"
+    st.caption(
+        f"Shaded bands: {pct}% confidence (how well the mean curve is pinned down) and "
+        f"{pct}% prediction (where a new gauging would fall), from {src}. "
+        f"Confidence band is ±{bands['ci_halfwidth_pct_at_median']:.1f}% "
+        f"at the median stage. Bands cover the observed stage range only."
+    )
+else:
+    st.caption("Confidence/prediction bands need at least 4 usable gaugings.")
+
+if p.get("weighted"):
+    st.caption(
+        f"⚖︎ Weighted least-squares fit using the per-point discharge uncertainty "
+        f"column (mean ±{p['mean_uncertainty_pct']:.1f}%)."
+    )
+elif p.get("uncertainty_source") == "column":
+    st.caption("Per-point discharge uncertainty column found, but all values are equal — fit not re-weighted.")
+else:
+    st.caption(f"Discharge uncertainty assumed at ±{p['uncertainty_pct_default']:.1f}% for every gauging (fit not re-weighted).")
 
 log_scale = st.checkbox("Log–log axes")
 figure = make_rating_curve_figure(
@@ -234,15 +313,38 @@ figure = make_rating_curve_figure(
 )
 st.pyplot(figure, use_container_width=True)
 
+drift = p.get("drift")
+if drift:
+    if drift["flag"] == "likely":
+        st.warning(f"⏳ {drift['message']}")
+    elif drift["flag"] == "possible":
+        st.info(f"⏳ {drift['message']}")
+    else:
+        st.caption(f"⏳ {drift['message']} (spans {drift['date_min']} → {drift['date_max']})")
+    resid_fig = make_residual_time_figure(fit_df, p)
+    if resid_fig is not None:
+        with st.expander("Residuals over time", expanded=drift["flag"] != "none"):
+            st.pyplot(resid_fig, use_container_width=True)
+
 
 # --------------------------------------------------------------------------- #
 # 7. Export
 # --------------------------------------------------------------------------- #
 st.subheader("Export")
-name = f"rating_curve_report_{site}.xlsx" if site else "rating_curve_report.xlsx"
-st.download_button(
+suffix = f"_{site}" if site else ""
+e1, e2 = st.columns(2)
+e1.download_button(
     "⬇︎ Download Excel report",
     data=report_bytes,
-    file_name=name,
+    file_name=f"rating_curve_report{suffix}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+e2.download_button(
+    "⬇︎ Download rating table (CSV)",
+    data=rating_csv,
+    file_name=f"rating_table{suffix}.csv",
+    mime="text/csv",
+)
+
+with st.expander(f"Rating table preview — stage → discharge every {rating_step:g} m ({len(rating_table)} rows)"):
+    st.dataframe(rating_table, use_container_width=True, hide_index=True)

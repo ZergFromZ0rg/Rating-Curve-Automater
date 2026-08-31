@@ -3,6 +3,7 @@ import pandas as pd
 
 from rating_curve_automater.cleaning import (
     clean_numeric_series,
+    clean_uncertainty_series,
     coerce_datetime,
     drop_footer_rows,
     is_footer_label,
@@ -31,6 +32,27 @@ def test_clean_numeric_is_idempotent_on_floats():
     values, censored = clean_numeric_series(pd.Series([0.1, 0.2, np.nan]))
     assert values.tolist()[:2] == [0.1, 0.2]
     assert not censored.any()
+
+
+def test_clean_uncertainty_reads_percent_strings():
+    s = pd.Series(["8%", "12 %", "±10", "N/A", "0", "-3"])
+    out = clean_uncertainty_series(s)
+    assert out.iloc[0] == 8.0
+    assert out.iloc[1] == 12.0
+    assert out.iloc[2] == 10.0             # leading ± stripped
+    assert np.isnan(out.iloc[3])          # placeholder
+    assert np.isnan(out.iloc[4])          # zero -> NaN (falls back to default)
+    assert out.iloc[5] == 3.0             # sign of an uncertainty is meaningless
+
+
+def test_clean_uncertainty_scales_fractions_to_percent():
+    out = clean_uncertainty_series(pd.Series([0.05, 0.08, 0.12, 0.07]))
+    assert out.tolist() == [5.0, 8.0, 12.0, 7.0]
+
+
+def test_clean_uncertainty_leaves_percent_values_alone():
+    out = clean_uncertainty_series(pd.Series([5.0, 8.0, 25.0]))
+    assert out.tolist() == [5.0, 8.0, 25.0]
 
 
 def test_footer_row_detection_and_drop():

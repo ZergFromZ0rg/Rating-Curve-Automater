@@ -96,11 +96,50 @@ def test_fit_two_segments_recovers_breakpoint_and_exponents():
     fit = fit_rating_curve(df, h0=0.18, segments=2)
 
     assert fit["is_segmented"] is True
+    assert fit["n_segments"] == 2
     assert 0.45 < fit["breakpoint"] < 0.80
+    assert fit["breakpoints"] == [fit["breakpoint"]]
     assert len(fit["segments"]) == 2
     assert 1.0 < fit["segments"][0]["b"] < 1.7
     assert 2.0 < fit["segments"][1]["b"] < 2.9
     assert fit["r_squared"] > 0.99
+
+
+def test_continuous_piecewise_curve_has_no_jump_at_the_breakpoint():
+    df = _segmented_frame(break_stage=0.60)
+    fit = fit_rating_curve(df, h0=0.18, segments=2)
+
+    bp = fit["breakpoint"]
+    left = predict_discharge(fit, bp - 1e-4)[0]
+    right = predict_discharge(fit, bp + 1e-4)[0]
+    assert abs(left - right) / right < 1e-3
+
+
+def test_three_segments_can_be_forced():
+    df = _segmented_frame(break_stage=0.60)
+    fit = fit_rating_curve(df, h0=0.18, segments=3)
+
+    assert fit["n_segments"] == 3
+    assert len(fit["segments"]) == 3
+    assert len(fit["breakpoints"]) == 2
+    assert fit["breakpoints"] == sorted(fit["breakpoints"])
+
+
+def test_auto_segments_picks_two_for_kinked_data_and_one_for_a_clean_line():
+    rng = np.random.default_rng(0)
+    df = _segmented_frame(break_stage=0.60)
+    df["Measured Discharge Q (m³/s)"] *= np.exp(rng.normal(0, 0.05, len(df)))
+
+    kinked = fit_rating_curve(df, h0=0.18, segments="auto", random_state=0)
+    assert kinked["is_segmented"] is True
+    assert kinked["n_segments"] == 2
+    assert kinked["segment_selection"] == "auto"
+
+    straight_df = _synthetic_curve()
+    straight_df["Measured Discharge Q (m³/s)"] *= np.exp(rng.normal(0, 0.03, len(straight_df)))
+    straight = fit_rating_curve(straight_df, h0=0.18, segments="auto", random_state=0)
+    assert straight["is_segmented"] is False
+    assert straight["n_segments"] == 1
 
 
 def test_predict_discharge_matches_both_model_kinds():
@@ -118,9 +157,10 @@ def test_predict_discharge_matches_both_model_kinds():
     assert seg_err < single_err
 
 
-def test_invalid_segment_count_raises():
+@pytest.mark.parametrize("bad", [0, -1, "banana", 2.5])
+def test_invalid_segment_argument_raises(bad):
     with pytest.raises(ValueError):
-        fit_rating_curve(_segmented_frame(), segments=3)
+        fit_rating_curve(_segmented_frame(), segments=bad)
 
 
 def test_two_segments_with_too_few_points_raises():
@@ -160,6 +200,92 @@ def test_too_few_points_is_a_non_critical_warning():
     fit = fit_rating_curve(df, h0=0.18)
     assert fit["is_plausible"] is True  # not critical
     assert any("only 3 point" in w for w in fit["warnings"])
+
+
+def _clean_curve(h0=0.18, a_true=1.2, b_true=1.7, n=60):
+    h = np.linspace(h0 + 0.05, 1.3, n)
+    q = a_true * (h - h0) ** b_true
+    return h, q
+
+
+def test_uniform_uncertainty_column_does_not_change_the_fit():
+    h, q = _clean_curve()
+    base = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
+    with_col = base.assign(discharge_uncertainty=8.0)  # every point ±8 %
+
+    a0 = fit_rating_curve(base, h0=0.18)
+    a1 = fit_rating_curve(with_col, h0=0.18)
+
+    assert a1["uncertainty_source"] == "column"
+    assert a1["weighted"] is False
+    assert a1["a"] == pytest.approx(a0["a"], rel=1e-9)
+    assert a1["b"] == pytest.approx(a0["b"], rel=1e-9)
+
+
+def test_default_uncertainty_pct_has_no_effect_without_a_column():
+    h, q = _clean_curve()
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    low = fit_rating_curve(df, h0=0.18, discharge_uncertainty_pct=3)
+    high = fit_rating_curve(df, h0=0.18, discharge_uncertainty_pct=40)
+
+    assert low["uncertainty_source"] == "default"
+    assert low["a"] == pytest.approx(high["a"], rel=1e-9)
+    assert low["b"] == pytest.approx(high["b"], rel=1e-9)
+
+
+def test_per_point_uncertainty_downweights_noisy_gaugings():
+    h, q = _clean_curve(b_true=1.7, n=60)
+    q_noisy = q.copy()
+    # Wreck the three highest-stage gaugings.
+    q_noisy[-3:] *= [0.45, 0.4, 0.35]
+
+    unc = np.full(len(h), 4.0)
+    unc[-3:] = 60.0  # ...but flag them as very uncertain
+
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q_noisy, "discharge_uncertainty": unc, "is_valid": True})
+
+    unweighted = fit_rating_curve(df.drop(columns="discharge_uncertainty"), h0=0.18)
+    weighted = fit_rating_curve(df, h0=0.18)
+
+    assert weighted["weighted"] is True
+    # The true exponent is 1.7; down-weighting the bad points recovers it better.
+    assert abs(weighted["b"] - 1.7) < abs(unweighted["b"] - 1.7)
+    assert weighted["b"] == pytest.approx(1.7, abs=0.1)
+
+
+def test_per_point_uncertainty_also_weights_segmented_fit():
+    df = _segmented_frame(break_stage=0.60)
+    df["discharge_uncertainty"] = np.linspace(3.0, 9.0, len(df))
+
+    fit = fit_rating_curve(df, h0=0.18, segments=2)
+
+    assert fit["is_segmented"] is True
+    assert fit["weighted"] is True
+    assert 0.45 < fit["breakpoint"] < 0.80
+
+
+def test_weighted_r_squared_is_used_for_the_poor_fit_check():
+    h, q = _clean_curve(b_true=1.7, n=50)
+    q[-8:] *= 0.25  # badly ruin the top gaugings
+    unc = np.full(len(h), 3.0)
+    unc[-8:] = 90.0
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "discharge_uncertainty": unc, "is_valid": True})
+
+    fit = fit_rating_curve(df, h0=0.18)
+
+    assert fit["weighted"] is True
+    assert fit["r_squared"] < 0.5                          # unweighted R² is dragged down...
+    assert fit["r_squared_weighted"] > fit["r_squared"]    # ...but the weighted fit is good
+    assert fit["r_squared_weighted"] > 0.9
+    assert not any("poor fit" in w for w in fit["warnings"])
+
+
+def test_n_bootstrap_populates_bands_on_the_fit():
+    df = _synthetic_curve()
+    fit = fit_rating_curve(df, h0=0.18, n_bootstrap=200, random_state=0)
+    assert fit["bands"] is not None
+    assert len(fit["bands"]["stage"]) == len(fit["bands"]["ci_lower"])
 
 
 def test_select_valid_measurements_applies_flag_and_dropna():

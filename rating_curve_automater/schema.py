@@ -23,12 +23,15 @@ DATE = "date"
 TIME = "time"
 STAGE_M = "stage_m"
 DISCHARGE_CMS = "discharge_cms"
+DISCHARGE_UNCERTAINTY = "discharge_uncertainty"
 QUALITY = "quality"
 NOTES = "notes"
 SITE = "site"
 
 REQUIRED_FIELDS: tuple[str, ...] = (DATE, STAGE_M, DISCHARGE_CMS)
-OPTIONAL_FIELDS: tuple[str, ...] = (QUALITY, NOTES, SITE, TIME)
+# DISCHARGE_UNCERTAINTY is resolved last so it never out-competes DISCHARGE_CMS
+# for a plain "discharge" column.
+OPTIONAL_FIELDS: tuple[str, ...] = (QUALITY, NOTES, SITE, TIME, DISCHARGE_UNCERTAINTY)
 # DATE is resolved before TIME so a "Date/Time" column is claimed as the date.
 ALL_FIELDS: tuple[str, ...] = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
@@ -38,6 +41,7 @@ FIELD_LABELS: dict[str, str] = {
     TIME: "Time",
     STAGE_M: "Stage (m)",
     DISCHARGE_CMS: "Discharge (m³/s)",
+    DISCHARGE_UNCERTAINTY: "Discharge uncertainty (±%)",
     QUALITY: "Quality",
     NOTES: "Field notes",
     SITE: "Site",
@@ -67,6 +71,14 @@ BUILTIN_ALIASES: dict[str, list[str]] = {
         "discharge", "measured discharge", "measured discharge q", "q meas",
         "qmeas", "gauged discharge", "q", "flow", "streamflow", "stream flow",
         "flow rate", "river flow", "total discharge", "qm",
+    ],
+    DISCHARGE_UNCERTAINTY: [
+        "discharge uncertainty", "measured discharge uncertainty",
+        "q uncertainty", "flow uncertainty", "measurement uncertainty",
+        "discharge uncertainty percent", "q uncertainty percent",
+        "uncertainty percent", "percent uncertainty", "uncertainty pct",
+        "discharge error percent", "q error percent", "measurement error percent",
+        "relative uncertainty", "uncertainty", "u95", "u 95",
     ],
     QUALITY: [
         "quality", "field quality", "data quality", "measurement quality",
