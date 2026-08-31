@@ -48,7 +48,11 @@ def make_rating_curve_figure(
     else:
         ax.scatter(stage, observed, s=20, color=OBSERVED_COLOR, label="Observed", zorder=3)
 
-    curve_stage = np.linspace(float(stage.min()), float(stage.max()), 300)
+    curve_hi = float(stage.max())
+    _manning = fit.get("manning") if fit is not None else None
+    if _manning and _manning.get("extrapolation_ceiling"):
+        curve_hi = max(curve_hi, float(_manning["extrapolation_ceiling"]))
+    curve_stage = np.linspace(float(stage.min()), curve_hi, 300)
     curve_stage = curve_stage[curve_stage > h0]
     if fit is not None and fit.get("is_segmented"):
         modeled = predict_discharge(fit, curve_stage)
@@ -76,6 +80,15 @@ def make_rating_curve_figure(
     if fit is not None and fit.get("is_segmented"):
         for bp in fit.get("breakpoints", [fit.get("breakpoint")]):
             ax.axvline(bp, color="#7f7f7f", linestyle="--", linewidth=1, zorder=1)
+
+    manning = fit.get("manning") if fit is not None else None
+    if manning and "stage" in manning:
+        ms = np.asarray(manning["stage"], dtype=float)
+        ax.plot(ms, np.asarray(manning["q_manning"], dtype=float),
+                color="#8c564b", linewidth=1.6, linestyle=(0, (5, 2)), zorder=2,
+                label=f"Manning (n={manning.get('n_used', float('nan')):.3f}) [{manning['flag']}]")
+        ax.axvline(manning["stage_max_gauged"], color="#8c564b", linestyle=":",
+                   linewidth=1, alpha=0.7, zorder=1)
 
     if log_scale:
         ax.set_xscale("log")

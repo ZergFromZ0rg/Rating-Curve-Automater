@@ -106,6 +106,10 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
         if bands.get("a_ci"):
             lo, hi = bands["a_ci"]
             rows.append({"Metric": f"{pct}% CI on a", "Value": f"[{lo:.4f}, {hi:.4f}]"})
+        if bands.get("h0_ci"):
+            lo, hi = bands["h0_ci"]
+            rows.append({"Metric": f"{pct}% CI on h0 (re-estimated per replicate)",
+                         "Value": f"[{lo:.3f}, {hi:.3f}]"})
         rows.append({
             "Metric": f"{pct}% confidence band half-width at median stage (%)",
             "Value": round(bands["ci_halfwidth_pct_at_median"], 1),
@@ -123,6 +127,25 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
         {"Metric": "Uncertain points", "Value": int((table["Uncertainty Flag"] == "Uncertain").sum())},
         {"Metric": "Normal points", "Value": int((table["Uncertainty Flag"] == "Normal").sum())},
     ]
+
+    loo = fit.get("loo")
+    if loo:
+        rows += [
+            {"Metric": "leave-one-out RMSPE (%)", "Value": round(loo["rmspe_pct"], 2)},
+            {"Metric": "leave-one-out bias (%)", "Value": round(loo["bias_pct"], 2)},
+            {"Metric": "leave-one-out 95th-pct abs error (%)", "Value": round(loo["p95_abs_pct"], 1)},
+        ]
+
+    manning = fit.get("manning")
+    if manning and manning.get("flag") not in (None, "unusable"):
+        rows.append({"Metric": "Manning cross-section check", "Value": manning["flag"]})
+        if manning.get("n_used") is not None:
+            rows.append({"Metric": "Manning's n (calibrated to rating)" if manning.get("n_supplied") is None
+                         else "Manning's n (supplied)", "Value": round(manning["n_used"], 4)})
+        if np.isfinite(manning.get("max_abs_pct_diff_extrapolated", float("nan"))):
+            rows.append({"Metric": "fitted-vs-Manning max diff, extrapolated (%)",
+                         "Value": round(manning["max_abs_pct_diff_extrapolated"], 1)})
+        rows.append({"Metric": "Manning check note", "Value": manning["message"]})
     drift = fit.get("drift")
     if drift:
         rows.append({"Metric": "temporal drift flag", "Value": drift["flag"]})
@@ -197,6 +220,22 @@ def export_rating_curve_report(
     fit_summary["r_squared"] = r_squared
     if drift is not None:
         fit_summary["drift"] = drift
+    if fit_summary.get("loo") is None:
+        from rating_curve_automater.rating_curve_fitting import leave_one_out_error
+
+        fdict = fit or {}
+        if fdict.get("segment_selection") == "auto":
+            segments_arg: int | str = "auto"
+        else:
+            segments_arg = fdict.get("n_segments", 1) if fdict.get("n_segments", 1) > 1 else 1
+        try:
+            fit_summary["loo"] = leave_one_out_error(
+                df, segments=segments_arg,
+                h0=None if fdict.get("h0_estimated", True) else h0,
+                discharge_uncertainty_pct=fdict.get("uncertainty_pct_default", 7.0),
+            )
+        except Exception:  # noqa: BLE001 - a diagnostic must never break the report
+            fit_summary["loo"] = None
     if site:
         fit_summary["site"] = site
     summary = build_summary_table(fit_summary, table)
@@ -285,7 +324,46 @@ def export_rating_curve_report(
         if drift and isinstance(drift.get("residuals"), pd.DataFrame) and not drift["residuals"].empty:
             _write_residuals_over_time_sheet(writer, drift)
 
+        manning = fit.get("manning") if fit is not None else None
+        if manning and "stage" in manning:
+            _write_manning_sheet(writer, manning)
+
     return output
+
+
+def _write_manning_sheet(writer, manning: dict) -> None:
+    """'Manning Check' sheet: the fitted curve vs a Manning curve from the
+    surveyed cross-section, over the gauged range and the extrapolation."""
+    df = pd.DataFrame({
+        "Stage (m)": np.round(np.asarray(manning["stage"]), 4),
+        "Fitted Q (m³/s)": np.round(np.asarray(manning["q_rating"]), 4),
+        "Manning Q (m³/s)": np.round(np.asarray(manning["q_manning"]), 4),
+        "Difference (%)": np.round(np.asarray(manning["pct_diff"]), 1),
+        "Above highest gauging": np.asarray(manning["stage"]) > manning["stage_max_gauged"],
+    })
+    df.to_excel(writer, sheet_name="Manning Check", index=False)
+    ws = writer.book["Manning Check"]
+    ws["G2"] = "flag"
+    ws["H2"] = manning["flag"]
+    ws["G3"] = "Manning's n used"
+    ws["H3"] = round(manning.get("n_used", float("nan")), 4)
+    ws["G4"] = "channel slope"
+    ws["H4"] = manning.get("slope")
+    ws["G5"] = "message"
+    ws["H5"] = manning["message"]
+
+    chart = LineChart()
+    chart.title = f"Fitted curve vs cross-section (Manning) — {manning['flag']}"
+    chart.x_axis.title = "Stage (m)"
+    chart.y_axis.title = "Discharge (m³/s)"
+    chart.style = 13
+    chart.height = 9
+    chart.width = 18
+    for col in (2, 3):
+        chart.add_data(Reference(ws, min_col=col, max_col=col, min_row=1, max_row=ws.max_row),
+                       titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
+    ws.add_chart(chart, "G8")
 
 
 def _write_residuals_over_time_sheet(writer, drift: dict) -> None:

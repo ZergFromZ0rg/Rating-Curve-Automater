@@ -98,54 +98,168 @@ def _loglog_fit(
     }
 
 
+#: ``h0`` estimation: the classic three-point method anchors it (robust, never
+#: runs away); the log-log curvature method then refines within a window of
+#: +/- :data:`_H0_REFINE_WINDOW_M` around that anchor, using the lowest
+#: :data:`_H0_LOWFLOW_FRACTION` of gaugings (the low-flow control is what the
+#: point of zero flow depends on). The refinement is only trusted when the block
+#: actually straightens (|curvature| < :data:`_H0_STRAIGHT_TOL`).
+_H0_MIN_POINTS = 10
+_H0_LOWFLOW_FRACTION = 0.45
+_H0_REFINE_WINDOW_M = 0.08
+_H0_STRAIGHT_TOL = 0.07
+#: Three-point triples disagreeing by more than this fraction of the stage range
+#: (inter-quartile) => the anchor is unreliable; fall back to a neutral default.
+_H0_TRIPLE_IQR_FRACTION = 0.12
+
+
+def _weighted_polyfit(x: np.ndarray, y: np.ndarray, weights: np.ndarray | None, deg: int) -> np.ndarray:
+    """``numpy.polyfit``-style coefficients (highest power first), weights scaling
+    the residual as :func:`numpy.polyfit`'s ``w`` does."""
+    vander = np.vander(np.asarray(x, dtype=float), deg + 1)
+    y = np.asarray(y, dtype=float)
+    if weights is not None:
+        w = np.asarray(weights, dtype=float)
+        vander = vander * w[:, None]
+        y = y * w
+    coef, *_ = np.linalg.lstsq(vander, y, rcond=None)
+    return coef
+
+
+def _log_curvature(stage, discharge, h0: float, weights=None) -> float:
+    """Quadratic coefficient of ``ln Q`` regressed on ``ln(H - h0)``.
+
+    Zero means the gaugings fall on a straight line in log-log space, i.e. a
+    single power law with this ``h0`` describes them. A wrong ``h0`` bends the
+    line: too small curves it up, too large curves it down.
+    """
+    x = np.asarray(stage, dtype=float) - h0
+    mask = x > 1e-9
+    if int(mask.sum()) < 6:
+        return float("nan")
+    y = np.log(np.asarray(discharge, dtype=float)[mask])
+    w = None if weights is None else np.asarray(weights, dtype=float)[mask]
+    return float(_weighted_polyfit(np.log(x[mask]), y, w, 2)[0])
+
+
+def _three_point_h0(stage: np.ndarray, discharge: np.ndarray) -> tuple[float, float]:
+    """Classic graphical point-of-zero-flow estimate, robustified.
+
+    For three discharges in geometric progression the corresponding stages give
+    ``h0 = (h1*h3 - h2^2) / (h1 + h3 - 2*h2)``. Many triples spanning the lower
+    half of the flow range are solved -- staying low keeps them inside a single
+    hydraulic control. Returns ``(median, iqr)``; a wide inter-quartile range
+    means the triples disagree and the estimate should not be trusted.
+    """
+    order = np.argsort(stage)
+    h = np.asarray(stage, dtype=float)[order]
+    ln_q = np.log(np.asarray(discharge, dtype=float)[order])
+    lo, hi = float(ln_q.min()), float(np.percentile(ln_q, 55))
+    estimates: list[float] = []
+    for frac in np.linspace(0.15, 0.85, 15):
+        mid = lo + frac * (hi - lo)
+        delta = min(mid - lo, hi - mid) * 0.9
+        if delta <= 1e-6:
+            continue
+        h1, h2, h3 = np.interp([mid - delta, mid, mid + delta], ln_q, h)
+        denom = h1 + h3 - 2.0 * h2
+        if abs(denom) < 1e-9:
+            continue
+        estimates.append((h1 * h3 - h2 ** 2) / denom)
+    if not estimates:
+        return float("nan"), float("inf")
+    arr = np.asarray(estimates)
+    return float(np.median(arr)), float(np.subtract(*np.percentile(arr, [75, 25])))
+
+
+def _estimate_h0(
+    stage: np.ndarray,
+    discharge: np.ndarray,
+    bounds: tuple[float, float] | None = None,
+    weights: np.ndarray | None = None,
+) -> tuple[float, dict]:
+    """Estimate the stage of zero flow and report how confident the estimate is.
+
+    The classic three-point (geometric-progression) method anchors ``h0``. The
+    log-log curvature method -- the ``h0`` that makes ``ln Q`` vs ``ln(H - h0)``
+    straightest over the low-flow gaugings -- then refines it within a narrow
+    window of that anchor, but only when those gaugings genuinely straighten.
+    Neither step maximises R² (which is monotone toward ``h0 -> 0`` because
+    ``a``, ``b`` and ``h0`` trade off, so it collapses the estimate).
+
+    Returns ``(h0, diagnostics)`` with ``method`` (``three-point`` /
+    ``curvature`` / ``default``), ``railed`` (hit a search bound -- weakly
+    identified) and ``min_abs_curvature`` (how straight the low-flow block gets).
+    """
+    stage = np.asarray(stage, dtype=float)
+    discharge = np.asarray(discharge, dtype=float)
+    order = np.argsort(stage)
+    stage, discharge = stage[order], discharge[order]
+    w = None if weights is None else np.asarray(weights, dtype=float)[order]
+
+    stage_min = float(stage.min())
+    stage_range = float(stage.max() - stage_min)
+    if bounds is None:
+        # Without a user-supplied bound, keep h0 >= 0: a natural point of zero
+        # flow below the datum is real but rare, and letting the estimate go
+        # negative on noisy compound data is the main way a segmented fit blows
+        # up. A genuine negative PZF site can pass ``bounds=`` / a fixed ``h0``.
+        lo_b, hi_b = 0.0, 0.95 * stage_min
+    else:
+        lo_b, hi_b = bounds
+        hi_b = min(hi_b, 0.999 * stage_min)
+    diag = {"method": "three-point", "railed": False,
+            "min_abs_curvature": float("nan"), "single_control": None}
+
+    if not hi_b > lo_b or len(stage) < _H0_MIN_POINTS:
+        return DEFAULT_H0, {**diag, "method": "default"}
+
+    anchor, triple_iqr = _three_point_h0(stage, discharge)
+    unreliable = not np.isfinite(anchor) or triple_iqr > _H0_TRIPLE_IQR_FRACTION * stage_range
+    if unreliable:
+        # Triples disagree -> no usable anchor. Use a neutral default, but never
+        # above half-way to the lowest gauging.
+        anchor = min(DEFAULT_H0, 0.5 * stage_min)
+        diag["method"] = "default"
+    anchor = float(np.clip(anchor, lo_b, hi_b))
+    h0 = anchor
+
+    # Refine within +/- window of the anchor, on the lowest gaugings only.
+    k = min(len(stage), max(_H0_MIN_POINTS, int(_H0_LOWFLOW_FRACTION * len(stage))))
+    lo_w = max(lo_b, anchor - _H0_REFINE_WINDOW_M)
+    hi_w = min(hi_b, anchor + _H0_REFINE_WINDOW_M)
+    best_h0, best_abs = float("nan"), np.inf
+    for cand in np.linspace(lo_w, hi_w, 64):
+        curv = _log_curvature(stage[:k], discharge[:k], float(cand),
+                              None if w is None else w[:k])
+        if np.isfinite(curv) and abs(curv) < best_abs:
+            best_abs, best_h0 = abs(curv), float(cand)
+    diag["min_abs_curvature"] = float(best_abs)
+    if np.isfinite(best_h0) and best_abs <= _H0_STRAIGHT_TOL:
+        h0 = best_h0
+        diag["method"] = "curvature"
+
+    h0 = float(np.clip(h0, lo_b, hi_b))
+    # Pinned at 0 => the data wants h0 <= 0 (the a/b/h0 collapse) -- a real
+    # problem. Pinned just below the lowest gauging with a straight low-flow fit
+    # is normal (the gaugings simply don't bound h0 from above) and not flagged.
+    diag["railed_low"] = bool(abs(h0 - lo_b) < 1e-6 and lo_b >= 0.0)
+    diag["railed_high"] = bool(abs(h0 - hi_b) < 1e-6)
+    diag["railed"] = bool(
+        diag["railed_low"]
+        or (diag["railed_high"] and diag["min_abs_curvature"] > _H0_STRAIGHT_TOL)
+    )
+    return h0, diag
+
+
 def estimate_h0(
     stage: np.ndarray,
     discharge: np.ndarray,
     bounds: tuple[float, float] | None = None,
     weights: np.ndarray | None = None,
 ) -> float:
-    """Estimate the stage of zero flow ``h0`` by maximising the fit R².
-
-    A golden-section search over ``h0`` is used. The search is capped just
-    below ``min(stage)`` so every measurement keeps ``H - h0 > 0`` and the
-    objective is compared on the same points at every candidate ``h0``.
-    """
-    stage = np.asarray(stage, dtype=float)
-    discharge = np.asarray(discharge, dtype=float)
-
-    stage_min = float(np.min(stage))
-    if bounds is None:
-        lo, hi = 0.0, 0.95 * stage_min
-    else:
-        lo, hi = bounds
-        lo = max(lo, 0.0)
-        hi = min(hi, 0.999 * stage_min)
-
-    if not hi > lo:
-        return DEFAULT_H0
-
-    def objective(h0: float) -> float:
-        fit = _loglog_fit(stage, discharge, h0, weights)
-        return fit["r_squared"] if fit is not None else -np.inf
-
-    golden = (np.sqrt(5.0) - 1.0) / 2.0
-    c = hi - golden * (hi - lo)
-    d = lo + golden * (hi - lo)
-    fc, fd = objective(c), objective(d)
-
-    for _ in range(100):
-        if hi - lo < 1e-6:
-            break
-        if fc > fd:
-            hi, d, fd = d, c, fc
-            c = hi - golden * (hi - lo)
-            fc = objective(c)
-        else:
-            lo, c, fc = c, d, fd
-            d = lo + golden * (hi - lo)
-            fd = objective(d)
-
-    return float((lo + hi) / 2.0)
+    """Estimate the stage of zero flow ``h0`` (see :func:`_estimate_h0`)."""
+    return _estimate_h0(stage, discharge, bounds, weights)[0]
 
 
 MIN_SEGMENT_POINTS = 4
@@ -207,6 +321,30 @@ def assess_fit(fit: dict, stage: np.ndarray, discharge: np.ndarray) -> tuple[lis
         warnings_out.append(f"poor fit: {r2_label} = {r2_used:.2f}")
     if fit["n_points"] < MIN_POINTS_RELIABLE:
         warnings_out.append(f"only {fit['n_points']} point(s) — the fit is unreliable")
+
+    if not fit.get("is_segmented") and fit["n_points"] >= 8:
+        curv = _log_curvature(stage, discharge, float(fit["h0"]))
+        if np.isfinite(curv) and abs(curv) > 0.10:
+            shape = "concave" if curv > 0 else "convex"
+            warnings_out.append(
+                f"the gaugings are {shape} in log-log space (curvature = {curv:+.2f}) "
+                f"— one power law misfits the mid-range; try segments=2 or "
+                f"segments='auto'"
+            )
+
+    h0_diag = fit.get("h0_diagnostics")
+    if h0_diag is not None:
+        if h0_diag.get("railed"):
+            warnings_out.append(
+                f"h0 = {fit['h0']:.3f} m reached a search bound — the point of zero "
+                f"flow is weakly identified by these gaugings; survey it or set it "
+                f"manually"
+            )
+        elif h0_diag.get("method") in ("three-point", "fallback"):
+            warnings_out.append(
+                f"h0 = {fit['h0']:.3f} m came from the fallback ({h0_diag['method']}) "
+                f"estimate — curvature was inconclusive; treat h0 as approximate"
+            )
 
     return warnings_out, critical
 
@@ -384,6 +522,8 @@ def fit_rating_curve(
     max_segments: int = DEFAULT_MAX_SEGMENTS,
     segment_criterion: str = "bic",
     method: str = "ols",
+    bayesian_sampler: str = "auto",
+    _diagnostics: bool = True,
 ) -> dict:
     """Fit a power-law rating curve: ``Q = a * (H - h0)^b``.
 
@@ -423,8 +563,10 @@ def fit_rating_curve(
 
     ``method="bayesian"`` fits with thodson-usgs ``ratingcurve`` (PyMC) instead
     of least squares; ``h0`` and the bands then come from the posterior and the
-    ``[bayesian]`` extra must be installed. ``method="ols"`` (default) is the
-    log-log least-squares path described above.
+    ``[bayesian]`` extra must be installed. ``bayesian_sampler`` picks the
+    sampler -- ``"auto"`` (NUTS for small records, ADVI above), ``"nuts"`` or
+    ``"advi"``. ``method="ols"`` (default) is the log-log least-squares path
+    described above.
     """
     if method not in ("ols", "bayesian"):
         raise ValueError("method must be 'ols' or 'bayesian'.")
@@ -449,12 +591,14 @@ def fit_rating_curve(
         fit = fit_bayesian_rating_curve(
             stage, discharge, unc_frac,
             segments=segments, level=ci_level, random_state=random_state,
+            sampler=bayesian_sampler,
         )
     else:
         h0_estimated = False
+        h0_diag: dict | None = None
         if h0 is None:
             if estimate_h0_if_missing:
-                h0 = estimate_h0(stage, discharge, weights=weights)
+                h0, h0_diag = _estimate_h0(stage, discharge, weights=weights)
                 h0_estimated = True
             else:
                 h0 = DEFAULT_H0
@@ -472,6 +616,8 @@ def fit_rating_curve(
                 n_segments=int(segments), max_segments=max_segments, criterion=segment_criterion,
             )
         fit["method"] = "ols"
+        if h0_diag is not None:
+            fit["h0_diagnostics"] = h0_diag
 
     fit["uncertainty_source"] = unc_source
     fit["uncertainty_pct_default"] = float(discharge_uncertainty_pct)
@@ -494,7 +640,11 @@ def fit_rating_curve(
             n_bootstrap=n_bootstrap,
             level=ci_level,
             random_state=random_state,
+            reestimate_h0=bool(fit.get("h0_estimated")),
         )
+
+    if not _diagnostics:
+        return fit
 
     from rating_curve_automater.rating_curve_drift import assess_temporal_drift
 
@@ -507,6 +657,62 @@ def fit_rating_curve(
     if strict and critical:
         raise ImplausibleRatingCurve(fit["warnings"])
     return fit
+
+
+#: Below this many valid gaugings a leave-one-out estimate is too noisy to mean much.
+MIN_POINTS_FOR_LOO = 8
+
+
+def leave_one_out_error(
+    df: pd.DataFrame,
+    *,
+    segments: int | str = 1,
+    h0: float | None = None,
+    discharge_uncertainty_pct: float = DEFAULT_DISCHARGE_UNCERTAINTY_PCT,
+    max_segments: int = DEFAULT_MAX_SEGMENTS,
+    segment_criterion: str = "bic",
+) -> dict | None:
+    """Leave-one-out cross-validated prediction error of the rating curve.
+
+    Each valid gauging is held out in turn, the curve is re-fitted (same
+    settings, ``h0`` re-estimated per fold when not supplied) and its discharge
+    predicted from the held-out stage. Reports the spread of those out-of-sample
+    percentage errors -- an honest accuracy figure, unlike the in-sample R².
+    Returns ``None`` below :data:`MIN_POINTS_FOR_LOO` gaugings.
+    """
+    working = select_valid_measurements(df).reset_index(drop=True)
+    n = len(working)
+    if n < MIN_POINTS_FOR_LOO:
+        return None
+
+    stage = working[STAGE_COL].to_numpy(dtype=float)
+    discharge = working[DISCHARGE_COL].to_numpy(dtype=float)
+    rel_errors: list[float] = []
+    for i in range(n):
+        train = working.drop(index=i)
+        try:
+            f = fit_rating_curve(
+                train, h0=h0, segments=segments,
+                discharge_uncertainty_pct=discharge_uncertainty_pct,
+                max_segments=max_segments, segment_criterion=segment_criterion,
+                n_bootstrap=0, _diagnostics=False,
+            )
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        pred = float(predict_discharge(f, stage[i])[0])
+        if np.isfinite(pred) and discharge[i] > 0:
+            rel_errors.append((pred - discharge[i]) / discharge[i])
+
+    if len(rel_errors) < MIN_POINTS_FOR_LOO:
+        return None
+    err = np.asarray(rel_errors)
+    return {
+        "n": int(err.size),
+        "rmspe_pct": float(100.0 * np.sqrt(np.mean(err ** 2))),
+        "bias_pct": float(100.0 * np.mean(err)),
+        "mae_pct": float(100.0 * np.mean(np.abs(err))),
+        "p95_abs_pct": float(100.0 * np.percentile(np.abs(err), 95)),
+    }
 
 
 def main() -> None:
@@ -522,6 +728,8 @@ def main() -> None:
     parser.add_argument("--site", type=str, default=None, help="Fit only rows with this value in the 'site' column.")
     parser.add_argument("--method", choices=("ols", "bayesian"), default="ols",
                         help="'ols' = log-log least squares (default); 'bayesian' = ratingcurve/PyMC (needs the [bayesian] extra).")
+    parser.add_argument("--sampler", choices=("auto", "nuts", "advi"), default="auto",
+                        help="Bayesian sampler: 'auto' (NUTS <=200 gaugings, else ADVI), 'nuts' (exact), 'advi' (fast). Ignored for --method ols.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero if the fit is not a plausible rating curve.")
     parser.add_argument(
         "--uncertainty-pct",
@@ -539,7 +747,19 @@ def main() -> None:
         help=f"Bootstrap replicates for the confidence/prediction bands (0 = off; default: {DEFAULT_N_BOOTSTRAP}).",
     )
     parser.add_argument("--seed", type=int, default=None, help="Random seed for the bootstrap.")
+    parser.add_argument("--loo", action="store_true",
+                        help="Also report leave-one-out cross-validated prediction error (honest out-of-sample accuracy).")
+    parser.add_argument("--cross-section", type=str, default=None,
+                        help="Cross-section CSV (offset + elevation columns) for a Manning sanity check of the curve's extrapolation.")
+    parser.add_argument("--slope", type=float, default=None,
+                        help="Channel/energy slope (m/m) — required with --cross-section.")
+    parser.add_argument("--mannings-n", type=float, default=None,
+                        help="Manning's n for the check (default: calibrate it to the rating over the gauged range).")
+    parser.add_argument("--stage-offset", type=float, default=0.0,
+                        help="Add this to stage H to get water-surface elevation in the cross-section's datum (default 0).")
     args = parser.parse_args()
+    if args.cross_section and args.slope is None:
+        raise SystemExit("--cross-section needs --slope (channel slope in m/m).")
 
     csv_path = Path(args.csv) if args.csv else Path("cleaned_measurements.csv")
     df = pd.read_csv(csv_path)
@@ -561,6 +781,7 @@ def main() -> None:
             n_bootstrap=args.bootstrap,
             random_state=args.seed,
             method=args.method,
+            bayesian_sampler=args.sampler,
         )
     except ImplausibleRatingCurve as exc:
         raise SystemExit(f"Implausible rating curve:\n  - " + "\n  - ".join(exc.warnings))
@@ -568,8 +789,16 @@ def main() -> None:
         raise SystemExit(str(exc))
 
     print("Rating curve fit results")
-    print(f"estimator = {'Bayesian (ratingcurve/PyMC)' if fit.get('method') == 'bayesian' else 'log-log least squares'}")
-    print(f"h0 = {fit['h0']:.3f} ({'estimated' if fit['h0_estimated'] else 'fixed'})")
+    if fit.get("method") == "bayesian":
+        print(f"estimator = Bayesian (ratingcurve/PyMC, {fit.get('bayes', {}).get('sampler', '?')})")
+    else:
+        print("estimator = log-log least squares")
+    h0_diag = fit.get("h0_diagnostics")
+    if fit["h0_estimated"] and h0_diag is not None:
+        h0_note = f"estimated, {h0_diag['method']}" + (", weakly identified" if h0_diag.get("railed") else "")
+    else:
+        h0_note = "estimated" if fit["h0_estimated"] else "fixed"
+    print(f"h0 = {fit['h0']:.3f} ({h0_note})")
     if fit["uncertainty_source"] == "column":
         kind = "weighted least squares" if fit["weighted"] else "uniform (unweighted)"
         print(f"discharge uncertainty = per-point column, {kind}")
@@ -592,6 +821,35 @@ def main() -> None:
         print(f"Weighted R^2 = {fit['r_squared_weighted']:.4f}")
     print(f"points = {fit['n_points']}")
     print(f"Equation: {fit['equation']}")
+    if args.loo:
+        seg_arg: int | str = "auto" if fit.get("segment_selection") == "auto" else (
+            fit.get("n_segments", 1) if fit.get("n_segments", 1) > 1 else 1)
+        loo = leave_one_out_error(
+            df, segments=seg_arg, h0=args.h0,
+            discharge_uncertainty_pct=args.uncertainty_pct,
+        )
+        if loo:
+            print(
+                f"Leave-one-out: RMSPE {loo['rmspe_pct']:.1f}%  bias {loo['bias_pct']:+.1f}%  "
+                f"MAE {loo['mae_pct']:.1f}%  (n={loo['n']}, honest out-of-sample)"
+            )
+    if args.cross_section:
+        from rating_curve_automater.manning import manning_sanity_check, read_cross_section
+
+        offset, bed = read_cross_section(args.cross_section)
+        mc = manning_sanity_check(
+            fit, offset, bed, args.slope,
+            n=args.mannings_n, stage_offset=args.stage_offset,
+        )
+        print(f"\nManning cross-section check [{mc['flag']}]: {mc['message']}")
+        if np.isfinite(mc.get("max_abs_pct_diff_extrapolated", float("nan"))):
+            print(
+                f"  n {'supplied' if mc.get('n_supplied') else 'calibrated'} = "
+                f"{mc['n_used']:.3f}; fitted vs Manning differs up to "
+                f"{mc['max_abs_pct_diff_gauged']:.0f}% in-range, "
+                f"{mc['max_abs_pct_diff_extrapolated']:.0f}% extrapolated "
+                f"(to {mc['extrapolation_ceiling']:.2f} m)"
+            )
     bands = fit.get("bands")
     if bands:
         pct = int(round(bands["level"] * 100))
@@ -601,6 +859,9 @@ def main() -> None:
         if bands.get("a_ci"):
             lo, hi = bands["a_ci"]
             print(f"{pct}% CI: a in [{lo:.4f}, {hi:.4f}]")
+        if bands.get("h0_ci"):
+            lo, hi = bands["h0_ci"]
+            print(f"{pct}% CI: h0 in [{lo:.3f}, {hi:.3f}] (propagated through the band)")
         unit = "posterior draws" if bands.get("kind") == "posterior" else "bootstrap replicates"
         print(
             f"{pct}% confidence band half-width at median stage: "

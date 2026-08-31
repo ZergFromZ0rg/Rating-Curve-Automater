@@ -86,6 +86,42 @@ def _posterior_mu_draws(rating, grid: np.ndarray) -> np.ndarray:
     return np.exp(log_mu)
 
 
+#: At or below this many gaugings, NUTS (exact posterior sampling) is fast enough
+#: and clearly more accurate than ADVI's variational approximation -- the ADVI
+#: fit misplaced breakpoints in benchmarking. Above it, ``sampler="auto"`` uses
+#: ADVI to keep the fit interactive.
+NUTS_MAX_POINTS = 200
+
+
+def _resolve_sampler(sampler: str, n_points: int) -> str:
+    if sampler not in ("auto", "nuts", "advi"):
+        raise ValueError("sampler must be 'auto', 'nuts' or 'advi'.")
+    if sampler != "auto":
+        return sampler
+    return "nuts" if n_points <= NUTS_MAX_POINTS else "advi"
+
+
+#: Most segments ``segments="auto"`` will try for the Bayesian backend (each
+#: extra segment is another full NUTS fit).
+BAYES_MAX_SEGMENTS = 3
+
+
+def _bayes_bic(params: dict, stage: np.ndarray, discharge: np.ndarray, n_seg: int) -> float:
+    """BIC of a fitted Bayesian curve, judged on its posterior-mean equation in
+    log space -- the same yardstick the least-squares piecewise path uses, so
+    ``segments="auto"`` picks a segment count it can justify."""
+    modelled = evaluate_equation(params, stage)
+    h0 = float(np.asarray(params["hs"], dtype=float)[0])
+    keep = (stage - h0 > 0) & (discharge > 0) & (modelled > 0)
+    n = int(keep.sum())
+    if n < 2 * n_seg + 2:
+        return float("inf")
+    rss = float(np.sum((np.log(discharge[keep]) - np.log(modelled[keep])) ** 2))
+    rss = max(rss, 1e-300)
+    k = 2 * n_seg + 1  # a, per-segment slope + breakpoint, sigma
+    return n * np.log(rss / n) + k * np.log(n)
+
+
 def fit_bayesian_rating_curve(
     stage: np.ndarray,
     discharge: np.ndarray,
@@ -94,9 +130,17 @@ def fit_bayesian_rating_curve(
     segments: int | str = 1,
     level: float = 0.95,
     random_state: int | None = None,
-    draws: int = 4000,
+    draws: int | None = None,
+    sampler: str = "auto",
+    max_segments: int = BAYES_MAX_SEGMENTS,
 ) -> dict:
-    """Fit a rating curve with ``ratingcurve``'s Bayesian power-law model."""
+    """Fit a rating curve with ``ratingcurve``'s Bayesian power-law model.
+
+    ``sampler`` is ``"nuts"`` (exact, slower), ``"advi"`` (variational, fast) or
+    ``"auto"`` -- NUTS for up to :data:`NUTS_MAX_POINTS` gaugings, ADVI above.
+    ``segments="auto"`` fits 1..``max_segments`` segments and keeps the count
+    with the lowest BIC (each candidate is a full fit, so this is slow).
+    """
     PowerLawRating = _power_law_rating()
 
     stage = np.asarray(stage, dtype=float)
@@ -106,15 +150,38 @@ def fit_bayesian_rating_curve(
     auto = isinstance(segments, str)
     n_seg = 1 if auto else max(1, int(segments))
 
-    rating = PowerLawRating(segments=n_seg)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        rating.fit(
-            h=stage, q=discharge, q_sigma=q_sigma,
-            method="advi", progressbar=False, random_seed=random_state, draws=draws,
-        )
+    sampler = _resolve_sampler(sampler, int(stage.size))
+    if draws is None:
+        draws = 1500 if sampler == "nuts" else 4000
+    fit_kwargs = dict(method=sampler, progressbar=False,
+                      random_seed=random_state, draws=draws)
+    if sampler == "nuts":
+        fit_kwargs.update(tune=1000, chains=4)
 
-    params = rating.equation()                       # {a, b[], hs[]}
+    def _fit(n: int):
+        r = PowerLawRating(segments=n)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            r.fit(h=stage, q=discharge, q_sigma=q_sigma, **fit_kwargs)
+        return r, r.equation()
+
+    if auto:
+        cap = max(1, min(int(max_segments), (stage.size - 2) // 4))
+        candidates = []
+        for n in range(1, cap + 1):
+            try:
+                r, p = _fit(n)
+            except Exception:
+                continue
+            candidates.append((_bayes_bic(p, stage, discharge, n), n, r, p))
+        if not candidates:
+            raise RuntimeError("Bayesian auto-segment fit did not converge for any segment count.")
+        bic_by_n = {n: bic for bic, n, _, _ in candidates}
+        _, n_seg, rating, params = min(candidates, key=lambda t: t[0])
+        auto_bic = bic_by_n
+    else:
+        rating, params = _fit(n_seg)
+        auto_bic = None
     b_terms = np.asarray(params["b"], dtype=float)
     hs = np.asarray(params["hs"], dtype=float)
     slopes = _segment_slopes(b_terms)
@@ -229,14 +296,20 @@ def fit_bayesian_rating_curve(
         "equation": equation,
         "bands": bands,
         "bayes": {
-            "sampler": "advi",
+            "sampler": sampler,
             "draws": n_draws,
+            "segment_selection": "auto" if auto else "forced",
+            "segment_bic": ({int(k): round(float(v), 2) for k, v in auto_bic.items()}
+                            if auto_bic else None),
             "auto_segments_note": (
-                "Bayesian backend does not auto-select the segment count; used 1. "
-                "Pass segments=2 or 3 explicitly." if auto else None
+                f"segments='auto': fitted 1..{max(auto_bic)} segments, BIC picked "
+                f"{n_seg}." if auto_bic else None
             ),
         },
     }
+    if auto:
+        fit["segment_selection"] = "auto"
+        fit["criterion"] = "bic"
     if n_seg > 1:
         fit["breakpoints"] = breakpoints
         fit["breakpoint"] = breakpoints[0]

@@ -10,11 +10,14 @@ questions:
   likely fall? (wider – it also carries the scatter of individual gaugings)
 
 Method: a wild residual bootstrap in log space. The fitted log-residuals are
-re-signed with standard-normal multipliers, the curve is re-fitted (``h0`` and,
-for a segmented curve, the breakpoint held at their point estimates) with the
-same measurement-uncertainty weights, and percentiles are taken across the
-replicates on a dense stage grid. The band spans the observed stage range only –
-it is not an extrapolation tool.
+re-signed with standard-normal multipliers and the curve is re-fitted with the
+same measurement-uncertainty weights; percentiles are taken across the replicates
+on a dense stage grid. When ``h0`` was estimated from the data it is
+**re-estimated inside every replicate** so the band carries the uncertainty in
+the point of zero flow (holding it fixed makes the low-flow band too tight);
+the physical breakpoint stages of a segmented curve are held at their point
+estimates. The band spans the observed stage range only – it is not an
+extrapolation tool.
 """
 
 from __future__ import annotations
@@ -33,32 +36,41 @@ def _refit_fixed(
     discharge_star: np.ndarray,
     fit: dict,
     weights_m: np.ndarray | None,
+    h0: float,
 ) -> dict | None:
-    """Re-fit on resampled discharge with ``h0`` (and breakpoint) held fixed.
+    """Re-fit on resampled discharge at the given ``h0``, physical breakpoints held.
 
-    Returns a minimal fit dict understood by
-    :func:`rating_curve_automater.rating_curve_fitting.predict_discharge`, or ``None`` if a segment
-    could not be fitted.
+    ``h0`` is passed in (it may be re-estimated per replicate). Points that fall
+    at or below it are dropped for this replicate. Returns a minimal fit dict
+    understood by :func:`rating_curve_automater.rating_curve_fitting.predict_discharge`,
+    or ``None`` if it could not be fitted.
     """
     from rating_curve_automater.rating_curve_fitting import _loglog_fit
 
-    h0 = fit["h0"]
+    usable = stage_m - h0 > 1e-9
+    if int(usable.sum()) < MIN_POINTS_FOR_BANDS:
+        return None
+    s, q = stage_m[usable], discharge_star[usable]
+    w = None if weights_m is None else weights_m[usable]
+
     if not fit.get("is_segmented"):
-        r = _loglog_fit(stage_m, discharge_star, h0, weights_m)
+        r = _loglog_fit(s, q, h0, w)
         if r is None:
             return None
         return {"is_segmented": False, "a": r["a"], "b": r["b"], "h0": h0}
 
-    # Piecewise: hold the breakpoints (spline knots) fixed, re-fit the spline
-    # coefficients on the resampled discharge.
+    # Piecewise: keep the physical breakpoint stages, re-derive the spline knots
+    # in log space from this replicate's h0, re-fit the spline coefficients.
     from rating_curve_automater.piecewise import fit_spline_coef
 
-    spline = fit["spline"]
-    knots_u = spline["knots_u"]
-    u = np.log(np.maximum(stage_m - h0, 1e-12))
-    y = np.log(np.maximum(discharge_star, 1e-12))
+    breakpoints = fit.get("breakpoints") or [fit["breakpoint"]]
+    if any(bp - h0 <= 1e-9 for bp in breakpoints):
+        return None
+    knots_u = [float(np.log(bp - h0)) for bp in breakpoints]
+    u = np.log(s - h0)
+    y = np.log(np.maximum(q, 1e-12))
     try:
-        coef = fit_spline_coef(u, y, weights_m, knots_u)
+        coef = fit_spline_coef(u, y, w, knots_u)
     except np.linalg.LinAlgError:
         return None
     return {
@@ -75,14 +87,17 @@ def bootstrap_rating_curve(
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
     level: float = DEFAULT_CI_LEVEL,
     random_state: int | None = None,
+    reestimate_h0: bool = False,
 ) -> dict | None:
     """Return confidence/prediction bands for ``fit`` over the observed stages.
 
     ``stage`` / ``discharge`` are the valid gaugings the curve was fitted on and
     ``weights`` the per-point regression weights (``1 / fractional uncertainty``).
+    ``reestimate_h0`` re-estimates the point of zero flow inside each replicate
+    (pass the fit's ``h0_estimated``) so the band reflects that uncertainty too.
     Returns ``None`` when there are too few points for a meaningful band.
     """
-    from rating_curve_automater.rating_curve_fitting import predict_discharge
+    from rating_curve_automater.rating_curve_fitting import _estimate_h0, predict_discharge
 
     stage = np.asarray(stage, dtype=float)
     discharge = np.asarray(discharge, dtype=float)
@@ -108,14 +123,20 @@ def bootstrap_rating_curve(
     curve_samples: list[np.ndarray] = []
     a_samples: list[float] = []
     b_samples: list[float] = []
+    h0_samples: list[float] = []
 
     for _ in range(int(n_bootstrap)):
         multipliers = rng.standard_normal(n)
         discharge_star = np.exp(log_q_hat + resid * multipliers)
-        refit = _refit_fixed(stage_m, discharge_star, fit, weights_m)
+        if reestimate_h0:
+            h0_star = _estimate_h0(stage_m, discharge_star, weights=weights_m)[0]
+        else:
+            h0_star = h0
+        refit = _refit_fixed(stage_m, discharge_star, fit, weights_m, h0_star)
         if refit is None:
             continue
         curve_samples.append(predict_discharge(refit, grid))
+        h0_samples.append(h0_star)
         if not refit["is_segmented"]:
             a_samples.append(refit["a"])
             b_samples.append(refit["b"])
@@ -164,5 +185,7 @@ def bootstrap_rating_curve(
         "pi_upper": pi_upper,
         "a_ci": _pair(a_samples),
         "b_ci": _pair(b_samples),
+        "h0_ci": _pair(h0_samples) if reestimate_h0 else None,
+        "h0_reestimated": bool(reestimate_h0),
         "ci_halfwidth_pct_at_median": ci_halfwidth_pct,
     }
