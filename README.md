@@ -15,8 +15,9 @@ multi-sheet Excel report with charts.
 
 > **Provisional software, no warranty.** Every rating curve, uncertainty band and
 > shift flag is a decision aid — review it as a qualified hydrographer before
-> operational use. No open-source licence is set yet: all rights reserved,
-> contact the author for reuse terms.
+> operational use.
+
+Licensed under the [BSD 3-Clause License](LICENSE).
 
 ## Install
 

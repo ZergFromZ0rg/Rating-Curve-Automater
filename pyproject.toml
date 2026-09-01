@@ -9,13 +9,14 @@ description = "Build a stage-discharge rating curve from messy field-gauging spr
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "ZergFromZ0rg" }]
+license = { file = "LICENSE" }
 keywords = ["hydrology", "rating curve", "stage discharge", "streamflow", "hydrometry"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Hydrology",
-    "Private :: Do Not Upload",
 ]
 dependencies = [
     "pandas>=2.0",
@@ -24,10 +25,6 @@ dependencies = [
     "matplotlib>=3.7",
     "PyYAML>=6.0",
 ]
-
-# No open-source licence is set yet: all rights reserved. Contact the author for
-# reuse terms. (The "Private :: Do Not Upload" classifier blocks accidental
-# publication to PyPI.)
 
 [project.optional-dependencies]
 app = ["streamlit>=1.30"]
