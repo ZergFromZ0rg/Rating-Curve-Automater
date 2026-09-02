@@ -349,9 +349,17 @@ if bands:
         f"{pct}% prediction (where a new gauging would fall), from {src}. "
         f"Confidence band is ±{bands['ci_halfwidth_pct_at_median']:.1f}% "
         f"at the median stage. Bands cover the observed stage range only."
-        + (f" h0 re-estimated per replicate — 95% CI [{bands['h0_ci'][0]:.3f}, {bands['h0_ci'][1]:.3f}] m."
+        + (f" h0 {pct}% CI "
+           f"[{bands['h0_ci'][0]:.3f}, {bands['h0_ci'][1]:.3f}] m"
+           + (" (posterior)." if bands.get("kind") == "posterior" else " (re-estimated per replicate).")
            if bands.get("h0_ci") else "")
     )
+    if bands.get("breakpoint_ci"):
+        st.caption(
+            "Breakpoint " + f"{pct}% credible interval(s): "
+            + "; ".join(f"[{lo:.3f}, {hi:.3f}] m" for lo, hi in bands["breakpoint_ci"])
+            + " — the shaded grey band on the plot."
+        )
 else:
     st.caption("Confidence/prediction bands need at least 4 usable gaugings.")
 

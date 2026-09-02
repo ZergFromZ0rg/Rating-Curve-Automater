@@ -167,9 +167,15 @@ Two orthogonal choices, not a menu of overlapping ones:
     "least squares" and "weighted least squares" are the same control.
   * `"bayesian"` – thodson-usgs [`ratingcurve`](https://github.com/thodson-usgs/ratingcurve)
     (a PyMC power-law model). `h0`, the segment slopes and the bands all come
-    from the posterior. `bayesian_sampler=` / `--sampler` picks `"nuts"` (exact),
-    `"advi"` (fast variational) or `"auto"` (NUTS for ≤ 200 gaugings, ADVI above);
-    NUTS places breakpoints more reliably. Needs `pip install ".[bayesian]"`.
+    from the posterior. Because the model samples the **breakpoint stages**
+    jointly with the coefficients, their uncertainty is reported too: `h0_ci` /
+    `h0_sd`, and `breakpoint_ci` / `breakpoint_sd` for a segmented fit (each
+    interval also on its `segments[i]` record). `assess_fit` warns when a
+    breakpoint's credible interval spans more than a third of the gauged stage
+    range; the plot shades each interval and the report lists them.
+    `bayesian_sampler=` / `--sampler` picks `"nuts"` (exact), `"advi"` (fast
+    variational) or `"auto"` (NUTS for ≤ 200 gaugings, ADVI above); NUTS places
+    breakpoints more reliably. Needs `pip install ".[bayesian]"`.
 * **Shape** (`segments=`) – `1`, an integer `≥ 2`, or `"auto"`. This is the
   "segmented power law with breakpoints" option and it composes with either
   method. `"auto"` fits 1..N segments and keeps the lowest-BIC count — for the
