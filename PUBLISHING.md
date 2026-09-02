@@ -1,7 +1,8 @@
 # Publishing a release
 
-The README's install instructions assume `rating-curve-automater` is on PyPI.
-The name is available and the package builds and passes `twine check`.
+`rating-curve-automater` is published at
+<https://pypi.org/project/rating-curve-automater/> (first release: `0.1.0`,
+2026-09-02). This is the guide for cutting the next one.
 
 ## Versioning
 
@@ -21,25 +22,20 @@ only yank it, never re-upload different code as the same version.
 GitHub Release, using PyPI **Trusted Publishing** (OIDC). No API token or secret
 is stored.
 
-### One-time PyPI setup
+### One-time setup (done for 0.1.0 — kept here for reference)
 
-1. Create a [PyPI](https://pypi.org/) account.
-2. Add a *pending* trusted publisher at
-   <https://pypi.org/manage/account/publishing/>:
-   - PyPI Project Name: `rating-curve-automater`
-   - Owner: `ZergFromZ0rg`
-   - Repository name: `Rating-Curve-Automater`
-   - Workflow name: `publish.yml`
-   - Environment name: `pypi`
-3. In the GitHub repo, create an Environment named `pypi`
-   (Settings → Environments → New environment). No secrets needed; optionally
-   add yourself as a required reviewer so each publish needs a click.
+1. PyPI account.
+2. Trusted publisher at <https://pypi.org/manage/account/publishing/>:
+   project `rating-curve-automater`, owner `ZergFromZ0rg`, repo
+   `Rating-Curve-Automater`, workflow `publish.yml`, environment `pypi`.
+3. GitHub repo Environment named `pypi` (Settings → Environments). No secrets;
+   optionally require a reviewer so each publish needs a click.
 
 ### Each release
 
-1. Bump `pyproject.toml` version if needed; commit and push.
+1. Bump `pyproject.toml` version; commit and push.
 2. GitHub → Releases → **Draft a new release**.
-   - Tag: `v0.1.0` (create on publish), target `main`.
+   - Tag: `vX.Y.Z` (create on publish), target `main`.
    - Generate release notes.
    - **Publish release.**
 3. The workflow runs: test → build → `twine check` → publish. Watch it under

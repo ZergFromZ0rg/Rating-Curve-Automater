@@ -1,5 +1,9 @@
 # Rating Curve Automater
 
+[![PyPI](https://img.shields.io/pypi/v/rating-curve-automater)](https://pypi.org/project/rating-curve-automater/)
+[![Python](https://img.shields.io/pypi/pyversions/rating-curve-automater)](https://pypi.org/project/rating-curve-automater/)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
+
 Automates building a stage–discharge **rating curve** from field measurements: it
 cleans and validates a measurement workbook, fits the power-law model
 
@@ -36,10 +40,13 @@ rca app
 **With Anaconda / Miniconda:**
 
 ```bash
-conda env create -f environment.yml
-conda activate rating-curve-automater
+conda create -n rca "python>=3.10" pip
+conda activate rca
+pip install "rating-curve-automater[app]"
 rca app
 ```
+
+(Or, from a repo clone, `conda env create -f environment.yml`.)
 
 **With plain pip (into a virtual environment):**
 
@@ -52,10 +59,8 @@ rca app
 Add the Bayesian fit backend (heavier — `ratingcurve` + PyMC) with the `bayesian`
 extra, e.g. `uv tool install "rating-curve-automater[app,bayesian]"`.
 
-> Until the package is on PyPI, replace `rating-curve-automater` above with
-> `"git+https://github.com/ZergFromZ0rg/Rating-Curve-Automater.git"` (needs `git`),
-> or clone the repo and `pip install -e ".[app,dev]"` (equivalently
-> `pip install -r requirements.txt`) for a contributor checkout.
+> **From source** (contributors): clone the repo and `pip install -e ".[app,dev]"`
+> (equivalently `pip install -r requirements.txt`).
 
 ## Usage
 
