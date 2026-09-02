@@ -21,24 +21,51 @@ Licensed under the [BSD 3-Clause License](LICENSE).
 
 ## Install
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
+You need a dataset of field gaugings (stage + discharge, ideally with dates) in
+an `.xlsx` / `.xls` / `.csv`. Pick whichever install route matches your machine —
+all of them give you the `rca` command and the `rca app` web UI. Needs Python ≥ 3.10.
 
-pip install -e .              # library + `rca` command line
-pip install -e ".[app]"       # + the Streamlit web UI
-pip install -e ".[bayesian]"  # + the Bayesian fit backend (ratingcurve + PyMC)
-pip install -e ".[app,dev]"   # + pytest   (same as: pip install -r requirements.txt)
+**With [uv](https://docs.astral.sh/uv/) (no Python or admin rights required — `uv`
+brings its own):**
+
+```bash
+uv tool install "rating-curve-automater[app]"
+rca app
 ```
 
-Needs Python ≥ 3.10.
+**With Anaconda / Miniconda:**
+
+```bash
+conda env create -f environment.yml
+conda activate rating-curve-automater
+rca app
+```
+
+**With plain pip (into a virtual environment):**
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install "rating-curve-automater[app]"
+rca app
+```
+
+Add the Bayesian fit backend (heavier — `ratingcurve` + PyMC) with the `bayesian`
+extra, e.g. `uv tool install "rating-curve-automater[app,bayesian]"`.
+
+> Until the package is on PyPI, replace `rating-curve-automater` above with
+> `"git+https://github.com/ZergFromZ0rg/Rating-Curve-Automater.git"` (needs `git`),
+> or clone the repo and `pip install -e ".[app,dev]"` (equivalently
+> `pip install -r requirements.txt`) for a contributor checkout.
 
 ## Usage
 
 ### Web UI (recommended)
 
 ```bash
-rca app          # or: streamlit run app.py
+rca app
 ```
+
+(`rca app` just runs `streamlit run` on the packaged `app.py` for you.)
 
 Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the page:
 
@@ -175,7 +202,7 @@ Two orthogonal choices, not a menu of overlapping ones:
     range; the plot shades each interval and the report lists them.
     `bayesian_sampler=` / `--sampler` picks `"nuts"` (exact), `"advi"` (fast
     variational) or `"auto"` (NUTS for ≤ 200 gaugings, ADVI above); NUTS places
-    breakpoints more reliably. Needs `pip install ".[bayesian]"`.
+    breakpoints more reliably. Needs the `bayesian` extra (see [Install](#install)).
 * **Shape** (`segments=`) – `1`, an integer `≥ 2`, or `"auto"`. This is the
   "segmented power law with breakpoints" option and it composes with either
   method. `"auto"` fits 1..N segments and keeps the lowest-BIC count — for the
@@ -284,7 +311,8 @@ Two orthogonal choices, not a menu of overlapping ones:
 | Path | Purpose |
 |---|---|
 | `pyproject.toml` | Package metadata, deps, the `rca` entry point |
-| `app.py` | Streamlit web UI (thin view over `rating_curve_automater/workflow.py`) |
+| `environment.yml` | Conda one-file setup |
+| `rating_curve_automater/app.py` | Streamlit web UI (thin view over `workflow.py`; launched by `rca app`) |
 | `rating_curve_automater/cli.py` | `rca` — unified command-line entry point |
 | `rating_curve_automater/workflow.py` | Headless load → validate → fit → export controller |
 | `rating_curve_automater/schema.py` | Canonical column schema + header resolution (aliases from `config/column_aliases.yaml`) |
