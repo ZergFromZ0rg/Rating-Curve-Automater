@@ -351,9 +351,12 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 ## Changelog
 
-**v0.2.0** (current) — replace the deprecated Streamlit `use_container_width`
-with `width="stretch"` (the app extra now needs `streamlit>=1.49`); `rca app`
-exits cleanly on Ctrl+C; declare Python 3.10–3.13.
+**Unreleased** — CI now runs the test suite on Python 3.10–3.13 (plus a pyflakes
+lint) on every push and pull request.
+
+**v0.2.0** (current release) — replace the deprecated Streamlit
+`use_container_width` with `width="stretch"` (the app extra now needs
+`streamlit>=1.49`); `rca app` exits cleanly on Ctrl+C; declare Python 3.10–3.13.
 
 **v0.1.0** — first PyPI release: cleaning/validation, weighted & piecewise fits,
 optional Bayesian backend, bootstrap and posterior uncertainty (incl. breakpoint
