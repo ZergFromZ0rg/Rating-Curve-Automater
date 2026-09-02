@@ -75,6 +75,11 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
         pick = f" (chosen by {fit.get('criterion', 'bic').upper()})" if fit.get("segment_selection") == "auto" else ""
         rows.append({"Metric": "segments", "Value": f"{fit.get('n_segments', len(breakpoints) + 1)}{pick}"})
         rows.append({"Metric": "breakpoint stage(s) (m)", "Value": ", ".join(f"{bp:.3f}" for bp in breakpoints)})
+        bp_ci = fit.get("breakpoint_ci")
+        if bp_ci:
+            lvl = int(round(fit.get("bands", {}).get("level", 0.95) * 100))
+            rows.append({"Metric": f"breakpoint {lvl}% credible interval(s) (m)",
+                         "Value": "; ".join(f"[{lo:.3f}, {hi:.3f}]" for lo, hi in bp_ci)})
         for i, seg in enumerate(fit["segments"], start=1):
             rows.append({"Metric": f"segment {i} a", "Value": seg["a"]})
             rows.append({"Metric": f"segment {i} b", "Value": seg["b"]})
@@ -108,7 +113,8 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
             rows.append({"Metric": f"{pct}% CI on a", "Value": f"[{lo:.4f}, {hi:.4f}]"})
         if bands.get("h0_ci"):
             lo, hi = bands["h0_ci"]
-            rows.append({"Metric": f"{pct}% CI on h0 (re-estimated per replicate)",
+            src = "posterior" if bands.get("kind") == "posterior" else "re-estimated per replicate"
+            rows.append({"Metric": f"{pct}% CI on h0 ({src})",
                          "Value": f"[{lo:.3f}, {hi:.3f}]"})
         rows.append({
             "Metric": f"{pct}% confidence band half-width at median stage (%)",

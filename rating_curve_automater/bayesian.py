@@ -11,6 +11,13 @@ least-squares path produces (``a`` / ``b`` / ``breakpoints`` / ``segments`` /
 work unchanged. The fitted curve is evaluated deterministically from the
 posterior-mean power-law equation; confidence and prediction bands come from the
 posterior instead of the wild bootstrap.
+
+Because ``ratingcurve`` samples the breakpoint stages ``hs`` jointly with the
+power-law coefficients, their uncertainty is already in the posterior. The fit
+dict exposes it: ``h0_ci`` / ``h0_sd`` always, and ``breakpoint_ci`` /
+``breakpoint_sd`` (plus a per-segment ``breakpoint_ci``) for a multi-segment
+fit. ``assess_fit`` warns when a breakpoint's credible interval is wide relative
+to the gauged stage range, the plot shades it, and the report lists it.
 """
 
 from __future__ import annotations
@@ -62,6 +69,29 @@ def evaluate_equation(params: dict, stage) -> np.ndarray:
 def _segment_slopes(b: np.ndarray) -> np.ndarray:
     """``ratingcurve`` stores b[0] as the base slope and b[i>0] as deviations."""
     return np.cumsum(np.asarray(b, dtype=float))
+
+
+def _hs_posterior_summary(rating, n_seg: int, lo_pct: float, hi_pct: float) -> dict:
+    """Credible intervals for the jointly-sampled breakpoint stages ``hs``.
+
+    ``hs[0]`` is the stage of zero flow (h0); ``hs[1:]`` are the segment
+    breakpoints. ``ratingcurve`` samples them inside the power-law model, so
+    their uncertainty is already in the posterior — this just reads it out.
+    Returns ``{"h0_ci", "h0_sd", "breakpoint_ci", "breakpoint_sd"}`` with the
+    breakpoint entries lists (empty for a single-segment fit).
+    """
+    hs = np.asarray(rating.idata.posterior["hs"]).reshape(-1, n_seg)  # (draws, seg)
+
+    def _ci(col: np.ndarray) -> tuple[float, float]:
+        lo, hi = np.percentile(col, [lo_pct, hi_pct])
+        return float(lo), float(hi)
+
+    return {
+        "h0_ci": _ci(hs[:, 0]),
+        "h0_sd": float(np.std(hs[:, 0])),
+        "breakpoint_ci": [_ci(hs[:, i]) for i in range(1, n_seg)],
+        "breakpoint_sd": [float(np.std(hs[:, i])) for i in range(1, n_seg)],
+    }
 
 
 def _posterior_mu_draws(rating, grid: np.ndarray) -> np.ndarray:
@@ -223,8 +253,14 @@ def fit_bayesian_rating_curve(
     if n_seg == 1:
         b_draws = float(rating.q_transform.std_) * np.asarray(rating.idata.posterior["b"]).reshape(-1)
         b_ci = tuple(float(v) for v in np.percentile(b_draws, [lo_pct, hi_pct]))
+        a_z = np.asarray(rating.idata.posterior["a"]).reshape(-1)
+        a_draws = np.exp(float(rating.q_transform.mean_) + float(rating.q_transform.std_) * a_z)
+        a_ci = tuple(float(v) for v in np.percentile(a_draws, [lo_pct, hi_pct]))
     else:
         b_ci = None
+        a_ci = None
+
+    hs_post = _hs_posterior_summary(rating, n_seg, lo_pct, hi_pct)
 
     bands = {
         "kind": "posterior",
@@ -237,8 +273,10 @@ def fit_bayesian_rating_curve(
         "ci_upper": ci_upper,
         "pi_lower": pi_lower,
         "pi_upper": pi_upper,
-        "a_ci": None,
+        "a_ci": a_ci,
         "b_ci": b_ci,
+        "h0_ci": hs_post["h0_ci"],
+        "breakpoint_ci": hs_post["breakpoint_ci"] or None,
         "ci_halfwidth_pct_at_median": 100.0 * ci_hw / q_at_median if q_at_median > 0 else float("nan"),
     }
 
@@ -295,6 +333,8 @@ def fit_bayesian_rating_curve(
         "r_squared_weighted": _r2(weights),
         "equation": equation,
         "bands": bands,
+        "h0_ci": hs_post["h0_ci"],
+        "h0_sd": hs_post["h0_sd"],
         "bayes": {
             "sampler": sampler,
             "draws": n_draws,
@@ -313,6 +353,10 @@ def fit_bayesian_rating_curve(
     if n_seg > 1:
         fit["breakpoints"] = breakpoints
         fit["breakpoint"] = breakpoints[0]
+        fit["breakpoint_ci"] = hs_post["breakpoint_ci"]
+        fit["breakpoint_sd"] = hs_post["breakpoint_sd"]
+        for seg, (lo, hi) in zip(fit["segments"][1:], hs_post["breakpoint_ci"]):
+            seg["breakpoint_ci"] = (lo, hi)
     else:
         fit.pop("segments")
     return fit

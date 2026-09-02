@@ -346,6 +346,21 @@ def assess_fit(fit: dict, stage: np.ndarray, discharge: np.ndarray) -> tuple[lis
                 f"estimate — curvature was inconclusive; treat h0 as approximate"
             )
 
+    # Bayesian backend: flag a breakpoint the posterior cannot pin down.
+    bp_ci = fit.get("breakpoint_ci")
+    if bp_ci and fit.get("stage_max") is not None and fit.get("stage_min") is not None:
+        span = float(fit["stage_max"]) - float(fit["stage_min"])
+        pct = int(round(fit.get("bands", {}).get("level", 0.95) * 100))
+        if span > 0:
+            for bp, (lo, hi) in zip(fit.get("breakpoints", []), bp_ci):
+                if (hi - lo) > 0.33 * span:
+                    warnings_out.append(
+                        f"breakpoint at {bp:.3f} m is weakly identified — its {pct}% "
+                        f"credible interval [{lo:.3f}, {hi:.3f}] spans "
+                        f"{100 * (hi - lo) / span:.0f}% of the gauged range; the "
+                        f"segment split is uncertain"
+                    )
+
     return warnings_out, critical
 
 
