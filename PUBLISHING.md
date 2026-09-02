@@ -5,10 +5,6 @@ PyPI. Here is how to get it there and how to cut a release.
 
 ## One-time setup
 
-- [ ] **Fix the copyright holder.** `LICENSE` and `pyproject.toml`
-      (`authors = [{ name = "ZergFromZ0rg" }]`) currently use a placeholder.
-      Replace with the real name/entity before the first upload — it is baked
-      into every published wheel.
 - [ ] Create a [PyPI](https://pypi.org/) account and a project-scoped API token
       (or configure [Trusted Publishing](https://docs.pypi.org/trusted-publishers/)
       from GitHub Actions, which needs no token).

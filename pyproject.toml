@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Build a stage-discharge rating curve from messy field-gauging spreadsheets: clean, validate, fit (weighted / piecewise), bootstrap uncertainty bands, rating table, and temporal-drift diagnostics."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "ZergFromZ0rg" }]
+authors = [{ name = "Boris Sapojnikov" }]
 license = { file = "LICENSE" }
 keywords = ["hydrology", "rating curve", "stage discharge", "streamflow", "hydrometry"]
 classifiers = [
