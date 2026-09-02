@@ -184,7 +184,7 @@ with st.expander("Detected layout", expanded=report.needs_review):
     if report.needs_review:
         st.warning("Low confidence somewhere below — sanity-check it.")
     st.text(report.describe())
-    st.dataframe(_friendly(report.sample), use_container_width=True, hide_index=True)
+    st.dataframe(_friendly(report.sample), width="stretch", hide_index=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -200,11 +200,11 @@ cleaned = result.cleaned
 if result.invalid_count:
     with st.expander(f"{result.invalid_count} invalid row(s)"):
         cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "validation_notes") if c in cleaned.columns]
-        st.dataframe(_friendly(cleaned.loc[~cleaned["is_valid"], cols]), use_container_width=True, hide_index=True)
+        st.dataframe(_friendly(cleaned.loc[~cleaned["is_valid"], cols]), width="stretch", hide_index=True)
 if result.warning_count:
     with st.expander(f"{result.warning_count} row(s) kept with warnings"):
         cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "warning_notes") if c in cleaned.columns]
-        st.dataframe(_friendly(cleaned.loc[cleaned["has_warning"], cols]), use_container_width=True, hide_index=True)
+        st.dataframe(_friendly(cleaned.loc[cleaned["has_warning"], cols]), width="stretch", hide_index=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -376,7 +376,7 @@ log_scale = st.checkbox("Log–log axes")
 figure = make_rating_curve_figure(
     fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale, fit=p
 )
-st.pyplot(figure, use_container_width=True)
+st.pyplot(figure, width="stretch")
 
 drift = p.get("drift")
 if drift:
@@ -396,7 +396,7 @@ if drift:
     resid_fig = make_residual_time_figure(fit_df, p)
     if resid_fig is not None:
         with st.expander("Residuals over time", expanded=drift["flag"] != "none"):
-            st.pyplot(resid_fig, use_container_width=True)
+            st.pyplot(resid_fig, width="stretch")
 
 mc = p.get("manning")
 if mc:
@@ -428,4 +428,4 @@ e2.download_button(
 )
 
 with st.expander(f"Rating table preview — stage → discharge every {rating_step:g} m ({len(rating_table)} rows)"):
-    st.dataframe(rating_table, use_container_width=True, hide_index=True)
+    st.dataframe(rating_table, width="stretch", hide_index=True)
