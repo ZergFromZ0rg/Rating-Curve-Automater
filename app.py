@@ -379,6 +379,13 @@ if drift:
         st.info(f"⏳ {drift['message']}")
     else:
         st.caption(f"⏳ {drift['message']} (spans {drift['date_min']} → {drift['date_max']})")
+    cp = drift.get("changepoint")
+    if cp is not None:
+        st.caption(
+            f"Estimated changepoint: **{cp['date']}** "
+            f"({cp['shift_pct']:+.0f}% across the break, p={cp['p_value']:.3f}; "
+            f"{cp['n_before']} gaugings before, {cp['n_after']} after)"
+        )
     resid_fig = make_residual_time_figure(fit_df, p)
     if resid_fig is not None:
         with st.expander("Residuals over time", expanded=drift["flag"] != "none"):
