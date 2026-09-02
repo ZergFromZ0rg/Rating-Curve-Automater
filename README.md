@@ -219,9 +219,15 @@ Two orthogonal choices, not a menu of overlapping ones:
   cannot be separated from the curve shape. A material trend (≥ 3 %/yr), recent
   bias (≥ 7 %) or split shift (≥ 7 %) that is also significant → `likely`, with a
   message pointing at scour vs aggradation and suggesting a stage shift
-  or re-fit. The web UI shows a residual-vs-date plot; the report gets a
-  **Residuals Over Time** sheet (with the per-gauging percent difference and
-  stage shift). Needs ≥ 6 dated gaugings over ≥ 45 days.
+  or re-fit. When the flag is `possible` or `likely` it also locates the single
+  most likely **changepoint** (`fit["drift"]["changepoint"]`): the split date
+  whose two separate rating curves best fit the record, with the percent shift
+  across the break (`shift_pct`), the gauging counts on each side, and a
+  permutation p-value that accounts for having scanned every candidate date. The
+  web UI shows a residual-vs-date plot and the changepoint estimate; the report
+  gets changepoint rows in the summary plus a **Residuals Over Time** sheet (with
+  the per-gauging percent difference and stage shift). Needs ≥ 6 dated gaugings
+  over ≥ 45 days.
 - **Rating table** – `build_rating_table(fit, step=0.01, stage_min=…, stage_max=…)`
   tabulates `Q` (and the confidence / prediction bounds) against stage on a
   fixed grid – the lookup table applied to a continuous stage record. It
@@ -285,7 +291,7 @@ Two orthogonal choices, not a menu of overlapping ones:
 | `rating_curve_automater/rating_curve_uncertainty.py` | Bootstrap confidence / prediction bands |
 | `rating_curve_automater/piecewise.py` | Continuous N-segment power law, BIC segment selection |
 | `rating_curve_automater/bayesian.py` | Optional Bayesian backend (wraps `ratingcurve` / PyMC) |
-| `rating_curve_automater/rating_curve_drift.py` | Residual-vs-date trend, split-period test + rating-shift flag |
+| `rating_curve_automater/rating_curve_drift.py` | Residual-vs-date trend, split-period test, changepoint date/magnitude + rating-shift flag |
 | `rating_curve_automater/manning.py` | Manning cross-section sanity check of the curve's extrapolation |
 | `rating_curve_automater/rating_table.py` | Stage→discharge lookup table (Excel sheet + CSV) |
 | `rating_curve_automater/rating_curve_report.py` | Excel report + chart |
