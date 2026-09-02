@@ -343,3 +343,16 @@ Two orthogonal choices, not a menu of overlapping ones:
 ```bash
 python3 -m pytest -q
 ```
+
+## Changelog
+
+**v0.2.0** (current) — replace the deprecated Streamlit `use_container_width`
+with `width="stretch"` (the app extra now needs `streamlit>=1.49`); `rca app`
+exits cleanly on Ctrl+C; declare Python 3.10–3.13.
+
+**v0.1.0** — first PyPI release: cleaning/validation, weighted & piecewise fits,
+optional Bayesian backend, bootstrap and posterior uncertainty (incl. breakpoint
+and changepoint), leave-one-out error, Manning cross-section check, Excel report,
+`rca` CLI and Streamlit app.
+
+Releases: <https://github.com/ZergFromZ0rg/Rating-Curve-Automater/releases>
