@@ -17,7 +17,14 @@ or piece by piece with :func:`load_measurements`,
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    #: Single-sourced from the installed distribution metadata (declared in
+    #: ``pyproject.toml``).
+    __version__ = _pkg_version("rating-curve-automater")
+except PackageNotFoundError:  # pragma: no cover - running from a non-installed tree
+    __version__ = "0.0.0+unknown"
 
 #: Provisional software. Fits and diagnostics are decision aids, not a
 #: substitute for review by a qualified hydrographer; no warranty is expressed

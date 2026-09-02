@@ -3,7 +3,7 @@
     rca validate  gaugings.xlsx --output-csv cleaned.csv
     rca fit       --segments auto --bootstrap 2000
     rca report    --rating-table-csv rating_table.csv
-    rca app       # launch the Streamlit UI (needs the 'app' extra, from a source checkout)
+    rca app       # launch the Streamlit UI (needs the 'app' extra)
 
 Each subcommand forwards its remaining arguments to the matching module, so
 ``rca fit --help`` shows that command's full option list.
@@ -17,15 +17,13 @@ from pathlib import Path
 
 from rating_curve_automater import __version__
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-
 _USAGE = """usage: rca <command> [options]
 
 commands:
   validate   clean & validate a gauging workbook to CSV
   fit        fit a rating curve from a cleaned CSV
   report     fit and write the multi-sheet Excel report (+ rating table)
-  app        launch the Streamlit web UI (needs the 'app' extra + a source checkout)
+  app        launch the Streamlit web UI (needs the 'app' extra)
 
   rca <command> --help   for that command's options
   rca --version
@@ -40,18 +38,14 @@ def _delegate(module: str, argv: list[str], prog: str) -> None:
 
 
 def _launch_streamlit() -> int:
-    script = _REPO_ROOT / "app.py"
-    if not script.is_file():
-        print(
-            "app.py is not next to the installed package. The web UI runs from a "
-            "source checkout: clone the repo and run\n  streamlit run app.py\nfrom its root.",
-            file=sys.stderr,
-        )
-        return 1
+    script = Path(__file__).with_name("app.py")
     try:
         import streamlit  # noqa: F401
     except ImportError:
         print("The web UI needs the 'app' extra:  pip install 'rating-curve-automater[app]'", file=sys.stderr)
+        return 1
+    if not script.is_file():  # pragma: no cover - app.py ships inside the package
+        print(f"packaged app.py is missing (looked in {script.parent}).", file=sys.stderr)
         return 1
     return subprocess.call([sys.executable, "-m", "streamlit", "run", str(script)])
 

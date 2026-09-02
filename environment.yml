@@ -1,0 +1,16 @@
+# Conda setup for people who run Anaconda / Miniconda on a work laptop.
+#
+#   conda env create -f environment.yml
+#   conda activate rating-curve-automater
+#   rca app
+#
+# This pulls the released package from PyPI. To run from a local checkout
+# instead, replace the pip line with:  -e .[app]
+name: rating-curve-automater
+channels:
+  - conda-forge
+dependencies:
+  - python >=3.10,<3.13
+  - pip
+  - pip:
+      - "rating-curve-automater[app]"

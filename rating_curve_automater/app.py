@@ -1,8 +1,7 @@
 """Streamlit front end for the Rating Curve Automater.
 
-Run with::
-
-    streamlit run app.py
+Launch it with ``rca app`` (from any install), which runs ``streamlit run`` on
+this file.
 
 A thin view over :class:`rating_curve_automater.workflow.RatingCurveWorkflow`, the
 headless load -> validate -> fit -> export controller.
