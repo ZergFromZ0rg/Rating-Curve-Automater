@@ -26,6 +26,8 @@ import warnings
 
 import numpy as np
 
+from rating_curve_automater.piecewise import segment_r_squared
+
 INSTALL_HINT = (
     "The Bayesian backend needs the optional 'bayesian' extra:\n"
     '    pip install "rating-curve-automater[bayesian]"\n'
@@ -282,14 +284,7 @@ def fit_bayesian_rating_curve(
 
     def _seg_record(i: int, lo: float, hi: float) -> dict:
         in_seg = (stage >= lo) & (stage < hi) & keep
-        obs = discharge[in_seg]
-        pred = modelled[in_seg]
-        if obs.size >= 2 and np.ptp(obs) > 0:
-            ss_res = float(np.sum((obs - pred) ** 2))
-            ss_tot = float(np.sum((obs - obs.mean()) ** 2))
-            seg_r2 = 1.0 - ss_res / ss_tot if ss_tot else 1.0
-        else:
-            seg_r2 = float("nan")
+        seg_r2 = segment_r_squared(discharge[in_seg], modelled[in_seg])
         # local a for Q = a*(H-h0)^b_seg on this segment
         a_local = float(np.exp(np.log(max(evaluate_equation(params, (lo + hi) / 2)[0], 1e-12))
                                - slopes[i] * np.log(max((lo + hi) / 2 - h0, 1e-9))))

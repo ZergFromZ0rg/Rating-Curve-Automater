@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import pytest
 
 from rating_curve_automater.rating_curve_fitting import fit_rating_curve
 from rating_curve_automater.rating_curve_uncertainty import bootstrap_rating_curve

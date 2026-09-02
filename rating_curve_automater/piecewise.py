@@ -29,6 +29,18 @@ DEFAULT_MAX_SEGMENTS = 4
 _TINY = 1e-9
 
 
+def segment_r_squared(observed: np.ndarray, predicted: np.ndarray) -> float:
+    """Ordinary R² of a segment's gaugings, or ``nan`` when it has too few
+    points / no spread to define one."""
+    obs = np.asarray(observed, dtype=float)
+    pred = np.asarray(predicted, dtype=float)
+    if obs.size < 2 or np.ptp(obs) == 0:
+        return float("nan")
+    ss_res = float(np.sum((obs - pred) ** 2))
+    ss_tot = float(np.sum((obs - obs.mean()) ** 2))
+    return 1.0 - ss_res / ss_tot if ss_tot else 1.0
+
+
 def _design(u: np.ndarray, knots_u: list[float]) -> np.ndarray:
     cols = [np.ones_like(u), u]
     for k in knots_u:
@@ -213,18 +225,10 @@ def fit_piecewise_power_law(
     for i, (lo, hi) in enumerate(bounds):
         in_seg = (u >= lo) & (u <= hi) if i == len(bounds) - 1 else (u >= lo) & (u < hi)
         a_k, b_k = _local_power_law(coef, knots_u, i)
-        obs = discharge_m[in_seg]
-        pred = modeled[in_seg]
-        if obs.size >= 2 and np.ptp(obs) > 0:
-            ss_res = float(np.sum((obs - pred) ** 2))
-            ss_tot = float(np.sum((obs - obs.mean()) ** 2))
-            seg_r2 = 1.0 - ss_res / ss_tot if ss_tot else 1.0
-        else:
-            seg_r2 = float("nan")
         segments.append({
             "a": a_k,
             "b": b_k,
-            "r_squared": seg_r2,
+            "r_squared": segment_r_squared(discharge_m[in_seg], modeled[in_seg]),
             "n_points": int(in_seg.sum()),
             "stage_min": float(math.exp(lo) + h0),
             "stage_max": float(math.exp(min(hi, u_hi)) + h0),

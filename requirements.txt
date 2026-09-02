@@ -1,10 +1,4 @@
-# Canonical dependency spec lives in pyproject.toml. This file installs
-# everything (runtime + Streamlit UI + test tooling) in one shot for a dev
-# checkout; equivalent to:  pip install -e ".[app,dev]"
-pandas>=2.0
-numpy>=1.24
-openpyxl>=3.1
-matplotlib>=3.7
-PyYAML>=6.0
-streamlit>=1.30
-pytest>=8.0
+# Dependency versions are declared once, in pyproject.toml. This file is only a
+# convenience for `pip install -r requirements.txt` on a dev checkout; it pulls
+# the runtime deps plus the Streamlit UI and test tooling.
+-e .[app,dev]

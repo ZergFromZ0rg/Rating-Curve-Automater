@@ -1,4 +1,5 @@
-# Extra column-header aliases, merged with the built-in list in src/schema.py.
+# Extra column-header aliases, merged with the built-in list in
+# rating_curve_automater/schema.py (BUILTIN_ALIASES).
 #
 # Each key is a canonical field; each value is a list of extra header phrases
 # that should map to it. Matching is case-insensitive and ignores unit brackets
