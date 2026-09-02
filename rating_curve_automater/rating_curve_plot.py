@@ -78,7 +78,13 @@ def make_rating_curve_figure(
 
     ax.plot(curve_stage, modeled, color=MODEL_COLOR, linewidth=2, label=label, zorder=2)
     if fit is not None and fit.get("is_segmented"):
-        for bp in fit.get("breakpoints", [fit.get("breakpoint")]):
+        bp_ci = fit.get("breakpoint_ci") or []
+        bp_pct = int(round((fit.get("bands") or {}).get("level", 0.95) * 100))
+        for i, bp in enumerate(fit.get("breakpoints", [fit.get("breakpoint")])):
+            if i < len(bp_ci):
+                lo, hi = bp_ci[i]
+                ax.axvspan(lo, hi, color="#7f7f7f", alpha=0.12, linewidth=0, zorder=0,
+                           label=f"breakpoint {bp_pct}% CI" if i == 0 else None)
             ax.axvline(bp, color="#7f7f7f", linestyle="--", linewidth=1, zorder=1)
 
     manning = fit.get("manning") if fit is not None else None
