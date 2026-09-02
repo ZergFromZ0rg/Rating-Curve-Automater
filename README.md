@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/rating-curve-automater)](https://pypi.org/project/rating-curve-automater/)
 [![Python](https://img.shields.io/pypi/pyversions/rating-curve-automater)](https://pypi.org/project/rating-curve-automater/)
+[![Tests](https://github.com/ZergFromZ0rg/Rating-Curve-Automater/actions/workflows/test.yml/badge.svg)](https://github.com/ZergFromZ0rg/Rating-Curve-Automater/actions/workflows/test.yml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
 Automates building a stage–discharge **rating curve** from field measurements: it
@@ -317,6 +318,7 @@ Two orthogonal choices, not a menu of overlapping ones:
 |---|---|
 | `pyproject.toml` | Package metadata, deps, the `rca` entry point |
 | `environment.yml` | Conda one-file setup |
+| `.github/workflows/` | CI: `test.yml` (pytest on 3.10–3.13 + a pyflakes lint, every push/PR), `publish.yml` (PyPI on GitHub Release) |
 | `rating_curve_automater/app.py` | Streamlit web UI (thin view over `workflow.py`; launched by `rca app`) |
 | `rating_curve_automater/cli.py` | `rca` — unified command-line entry point |
 | `rating_curve_automater/workflow.py` | Headless load → validate → fit → export controller |
@@ -343,6 +345,9 @@ Two orthogonal choices, not a menu of overlapping ones:
 ```bash
 python3 -m pytest -q
 ```
+
+CI runs this on Python 3.10–3.13 (plus a pyflakes lint) on every push and pull
+request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 ## Changelog
 
