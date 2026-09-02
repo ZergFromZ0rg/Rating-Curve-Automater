@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import pytest
 
 from rating_curve_automater.schema import DATE, DISCHARGE_CMS, STAGE_M
 from rating_curve_automater.loader import load_measurements

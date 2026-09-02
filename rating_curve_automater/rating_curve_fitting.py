@@ -9,7 +9,6 @@ from rating_curve_automater.piecewise import (
     DEFAULT_MAX_SEGMENTS,
     evaluate_spline,
     fit_piecewise_power_law,
-    fit_spline_coef,
 )
 from rating_curve_automater.rating_curve_uncertainty import DEFAULT_N_BOOTSTRAP
 from rating_curve_automater.schema import DISCHARGE_CMS, DISCHARGE_UNCERTAINTY, STAGE_M, ensure_canonical
@@ -799,7 +798,7 @@ def main() -> None:
             bayesian_sampler=args.sampler,
         )
     except ImplausibleRatingCurve as exc:
-        raise SystemExit(f"Implausible rating curve:\n  - " + "\n  - ".join(exc.warnings))
+        raise SystemExit("Implausible rating curve:\n  - " + "\n  - ".join(exc.warnings))
     except ImportError as exc:
         raise SystemExit(str(exc))
 
