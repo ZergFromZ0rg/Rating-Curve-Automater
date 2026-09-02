@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rating-curve-automater"
-version = "0.1.0"
+version = "0.2.0"
 description = "Build a stage-discharge rating curve from messy field-gauging spreadsheets: clean, validate, fit (weighted / piecewise), bootstrap uncertainty bands, rating table, and temporal-drift diagnostics."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Hydrology",
 ]
 
@@ -33,7 +37,7 @@ Repository = "https://github.com/ZergFromZ0rg/Rating-Curve-Automater"
 Issues = "https://github.com/ZergFromZ0rg/Rating-Curve-Automater/issues"
 
 [project.optional-dependencies]
-app = ["streamlit>=1.30"]
+app = ["streamlit>=1.49"]   # width="stretch" API (use_container_width deprecated)
 # Bayesian backend (thodson-usgs ratingcurve). PyMC is pinned < 6 because
 # ratingcurve 1.0.x still uses APIs (pm.callbacks / pm.ADVI helpers) removed in
 # PyMC 6.
