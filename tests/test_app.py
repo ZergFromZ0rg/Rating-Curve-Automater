@@ -5,12 +5,13 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
-DATASET = Path(__file__).resolve().parents[1] / "rating_curve_automater" / "data" / "10_year_single_site_rating_curve_data.xlsx"
+_PKG = Path(__file__).resolve().parents[1] / "rating_curve_automater"
+DATASET = _PKG / "data" / "10_year_single_site_rating_curve_data.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _app():
-    return AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=60)
+    return AppTest.from_file(str(_PKG / "app.py"), default_timeout=60)
 
 
 def test_app_boots_without_a_file():
