@@ -14,6 +14,11 @@ halves of the record and compares them (this catches a shift the combined fit
 absorbed into curve shape), and a ``flag`` of ``"none"`` / ``"possible"`` /
 ``"likely"`` / ``"unassessable"`` (the last when stage and date are so
 correlated that a shift cannot be separated from the curve's shape).
+
+When the flag is ``"possible"`` or ``"likely"`` it also locates the single most
+likely **changepoint**: the split date that best separates the record into two
+distinct rating curves, with its magnitude (percent shift across the break) and
+a permutation p-value — reported as ``result["changepoint"]``.
 """
 
 from __future__ import annotations
@@ -30,6 +35,10 @@ _N_PERM = 2000
 #: Split-period shift test: gaugings per half, and permutations for its p-value.
 _MIN_PER_HALF = 6
 _N_PERM_SPLIT = 400
+#: Changepoint search: gaugings required on each side of the break, and
+#: permutations for its p-value.
+_MIN_CP_PER_SIDE = 5
+_N_PERM_CP = 400
 
 #: A time trend of this many percent per year (or a recent-window mean offset of
 #: this many percent) is treated as hydrologically material.
@@ -185,6 +194,102 @@ def _period_split_shift(stage: np.ndarray, obs: np.ndarray, order_by_date: np.nd
     }
 
 
+def _loglog_ab_rss(x_pos: np.ndarray, q_pos: np.ndarray) -> tuple[float, float, float] | None:
+    """``(a, b, rss)`` for ``Q = a * x^b`` — log-log least squares plus the
+    residual sum of squares in log space. ``x`` is ``H - h0``, all positive."""
+    if x_pos.size < 3 or np.unique(x_pos).size < 2:
+        return None
+    lx, lq = np.log(x_pos), np.log(q_pos)
+    slope, intercept = np.polyfit(lx, lq, 1)
+    resid = lq - (intercept + slope * lx)
+    return float(np.exp(intercept)), float(slope), float(resid @ resid)
+
+
+def _best_two_curve_split(x: np.ndarray, q: np.ndarray, order: np.ndarray) -> tuple | None:
+    """Scan every date-ordered split of the record into an early and a late
+    stretch; return the one whose two separate log-log rating curves leave the
+    smallest combined residual sum of squares.
+
+    ``order`` gives each gauging's 0-based position in date order. Returns
+    ``(k, rss_two, params_early, params_late)`` or ``None`` if no split has
+    enough usable points on both sides.
+    """
+    n = x.size
+    best = None
+    for k in range(_MIN_CP_PER_SIDE, n - _MIN_CP_PER_SIDE + 1):
+        early = order < k
+        fe = _loglog_ab_rss(x[early], q[early])
+        fl = _loglog_ab_rss(x[~early], q[~early])
+        if fe is None or fl is None:
+            continue
+        rss = fe[2] + fl[2]
+        if best is None or rss < best[1]:
+            best = (k, rss, fe[:2], fl[:2])
+    return best
+
+
+def _locate_changepoint(stage: np.ndarray, obs: np.ndarray, dates: pd.Series,
+                        h0: float, rng) -> dict | None:
+    """Find the single split date that best resolves the record into two
+    distinct rating curves, with the percent shift across it and a permutation
+    p-value that accounts for having searched every candidate date.
+
+    ``stage`` / ``obs`` / ``dates`` are all in ascending date order. ``None``
+    when the record is too short or no split separates the curves.
+    """
+    x = stage - h0
+    keep = (x > 0) & (obs > 0)
+    x, q = x[keep], obs[keep]
+    dsel = dates.to_numpy()[keep]
+    n = x.size
+    if n < 2 * _MIN_CP_PER_SIDE:
+        return None
+
+    order = np.arange(n)
+    one = _loglog_ab_rss(x, q)
+    best = _best_two_curve_split(x, q, order)
+    if one is None or best is None:
+        return None
+    k, rss_two = best[0], best[1]
+    rss_one = one[2]
+    if rss_one <= 1e-12:
+        return None
+    var_reduction = max(0.0, 1.0 - rss_two / rss_one)
+
+    lo = max(x[:k].min(), x[k:].min())
+    hi = min(x[:k].max(), x[k:].max())
+    if not hi > lo * 1.05:
+        return None
+    shift_pct = _median_pct_gap(best[2], best[3], lo, hi)
+
+    # Permutation null: break the tie between gauging and date, re-run the full
+    # search, and see how often a shuffled record explains at least as much.
+    obs_gain = rss_one - rss_two
+    hits = 1
+    for _ in range(_N_PERM_CP):
+        perm = rng.permutation(n)
+        b = _best_two_curve_split(x, q, np.argsort(perm))
+        if b is None:
+            continue
+        if (rss_one - b[1]) >= obs_gain - 1e-12:
+            hits += 1
+    p_value = hits / (_N_PERM_CP + 1)
+
+    d_before = pd.Timestamp(dsel[k - 1])
+    d_after = pd.Timestamp(dsel[k])
+    break_date = d_before + (d_after - d_before) / 2
+    return {
+        "date": str(break_date.date()),
+        "date_before": str(d_before.date()),
+        "date_after": str(d_after.date()),
+        "shift_pct": shift_pct,
+        "p_value": p_value,
+        "n_before": int(k),
+        "n_after": int(n - k),
+        "variance_reduction": float(var_reduction),
+    }
+
+
 def _direction(pct: float) -> str:
     if pct >= 0:
         return "above the curve (observed discharge higher than modelled — possible channel scour / control degradation)"
@@ -288,6 +393,12 @@ def assess_temporal_drift(
         result["split_shift_pct"] = split["shift_pct"]
         result["split_p_value"] = split["p_value"]
 
+    changepoint = None
+    if flag in ("possible", "likely"):
+        changepoint = _locate_changepoint(stage_all, obs_all, dates, float(fit["h0"]), rng)
+        if changepoint is not None:
+            result["changepoint"] = changepoint
+
     if flag == "none" and confounded:
         result["flag"] = "unassessable"
         result["message"] = (
@@ -315,7 +426,12 @@ def assess_temporal_drift(
                 f"a late-period re-fit sits {split['shift_pct']:+.0f}% from an early-period "
                 f"re-fit over the shared stage range (p={split['p_value']:.3f})"
             )
-        result["message"] = (
-            f"{lead}: " + "; ".join(bits) + ". Consider a stage shift or a re-fit on recent gaugings."
-        )
+        tail = ". Consider a stage shift or a re-fit on recent gaugings."
+        if changepoint is not None:
+            tail = (
+                f". Largest single break near {changepoint['date']} "
+                f"({changepoint['shift_pct']:+.0f}% across it, p={changepoint['p_value']:.3f}) — "
+                f"consider re-fitting on the {changepoint['n_after']} gaugings since."
+            )
+        result["message"] = f"{lead}: " + "; ".join(bits) + tail
     return result

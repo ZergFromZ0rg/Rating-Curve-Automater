@@ -107,6 +107,39 @@ def test_split_period_catches_a_step_shift_the_combined_fit_absorbs():
     assert drift["split_p_value"] < 0.05
 
 
+def test_changepoint_is_located_and_quantified():
+    # A +15% step change at the median date; changepoint should land near it.
+    rng = np.random.default_rng(11)
+    n = 70
+    days = np.sort(rng.uniform(0, 6 * 365, n))
+    dates = pd.Timestamp("2016-01-01") + pd.to_timedelta(days, unit="D")
+    h = rng.uniform(0.30, 1.8, n)
+    q = 6.0 * (h - 0.15) ** 1.9 * np.exp(rng.normal(0, 0.04, n))
+    q[days >= np.median(days)] *= 1.15
+    df = pd.DataFrame({"date": dates, "stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    drift = fit_rating_curve(df, segments="auto", random_state=0)["drift"]
+    cp = drift["changepoint"]
+    break_day = (pd.Timestamp(cp["date"]) - pd.Timestamp("2016-01-01")).days
+    assert abs(break_day - np.median(days)) < 300          # within ~10 months
+    assert cp["shift_pct"] == pytest.approx(15, abs=8)
+    assert cp["p_value"] < 0.05
+    assert cp["n_before"] + cp["n_after"] == n
+    assert cp["date"] in drift["message"]
+
+
+def test_no_changepoint_block_when_flag_is_none():
+    fit = fit_rating_curve(_dated_frame(drift_per_year=0.0, seed=2), h0=0.15, random_state=0)
+    assert "changepoint" not in fit["drift"]
+
+
+def test_changepoint_is_reproducible_with_a_seed():
+    df = _dated_frame(drift_per_year=0.05, seed=6)
+    a = fit_rating_curve(df, h0=0.15, random_state=3)["drift"].get("changepoint")
+    b = fit_rating_curve(df, h0=0.15, random_state=3)["drift"].get("changepoint")
+    assert a == b
+
+
 def test_stage_confounded_with_date_is_reported_as_unassessable():
     # Only low flow measured early, only high flow late -> a shift is not
     # separable from the curve shape.

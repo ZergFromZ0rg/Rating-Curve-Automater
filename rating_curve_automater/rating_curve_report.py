@@ -154,6 +154,13 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
             rows.append({"Metric": "residual trend p-value", "Value": round(drift["trend_p_value"], 3)})
             rows.append({"Metric": f"recent {drift['recent_n']} gaugings mean offset (%)",
                          "Value": round(drift["recent_mean_pct"], 1)})
+        cp = drift.get("changepoint")
+        if cp is not None:
+            rows.append({"Metric": "drift changepoint date", "Value": cp["date"]})
+            rows.append({"Metric": "changepoint shift (%)", "Value": round(cp["shift_pct"], 1)})
+            rows.append({"Metric": "changepoint p-value", "Value": round(cp["p_value"], 3)})
+            rows.append({"Metric": "gaugings before / after changepoint",
+                         "Value": f"{cp['n_before']} / {cp['n_after']}"})
         rows.append({"Metric": "temporal drift note", "Value": drift["message"]})
 
     if not fit.get("is_plausible", True):
