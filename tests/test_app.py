@@ -20,6 +20,11 @@ def test_app_boots_without_a_file():
     assert any("Upload" in msg.value for msg in at.info)
 
 
+def test_app_uses_no_deprecated_streamlit_kwargs():
+    src = (_PKG / "app.py").read_text()
+    assert "use_container_width" not in src  # removed by Streamlit after 2025-12-31
+
+
 @pytest.mark.skipif(not DATASET.exists(), reason="bundled dataset missing")
 def test_app_full_run_on_bundled_dataset():
     at = _app().run()
