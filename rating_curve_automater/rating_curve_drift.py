@@ -126,13 +126,22 @@ def _perm_group_p(y: np.ndarray, recent_mask: np.ndarray, diff_obs: float, rng) 
     return float((np.sum(np.abs(md) >= abs(diff_obs) - 1e-15) + 1) / (_N_PERM + 1))
 
 
-def _loglog_ab(x_pos: np.ndarray, q_pos: np.ndarray) -> tuple[float, float] | None:
-    """``(a, b)`` for ``Q = a * x^b`` by log-log least squares. ``x`` is already
-    ``H - h0`` and all positive."""
+def _loglog_ab_rss(x_pos: np.ndarray, q_pos: np.ndarray) -> tuple[float, float, float] | None:
+    """``(a, b, rss)`` for ``Q = a * x^b`` — log-log least squares plus the
+    residual sum of squares in log space. ``x`` is ``H - h0``, all positive.
+    ``None`` when there are fewer than 3 points or no spread in ``x``."""
     if x_pos.size < 3 or np.unique(x_pos).size < 2:
         return None
-    slope, intercept = np.polyfit(np.log(x_pos), np.log(q_pos), 1)
-    return float(np.exp(intercept)), float(slope)
+    lx, lq = np.log(x_pos), np.log(q_pos)
+    slope, intercept = np.polyfit(lx, lq, 1)
+    resid = lq - (intercept + slope * lx)
+    return float(np.exp(intercept)), float(slope), float(resid @ resid)
+
+
+def _loglog_ab(x_pos: np.ndarray, q_pos: np.ndarray) -> tuple[float, float] | None:
+    """``(a, b)`` for ``Q = a * x^b`` by log-log least squares."""
+    fit = _loglog_ab_rss(x_pos, q_pos)
+    return fit[:2] if fit is not None else None
 
 
 def _median_pct_gap(params_a, params_b, x_lo: float, x_hi: float) -> float:
@@ -192,17 +201,6 @@ def _period_split_shift(stage: np.ndarray, obs: np.ndarray, order_by_date: np.nd
         "n_early": int(early.sum()),
         "n_late": int(late.sum()),
     }
-
-
-def _loglog_ab_rss(x_pos: np.ndarray, q_pos: np.ndarray) -> tuple[float, float, float] | None:
-    """``(a, b, rss)`` for ``Q = a * x^b`` — log-log least squares plus the
-    residual sum of squares in log space. ``x`` is ``H - h0``, all positive."""
-    if x_pos.size < 3 or np.unique(x_pos).size < 2:
-        return None
-    lx, lq = np.log(x_pos), np.log(q_pos)
-    slope, intercept = np.polyfit(lx, lq, 1)
-    resid = lq - (intercept + slope * lx)
-    return float(np.exp(intercept)), float(slope), float(resid @ resid)
 
 
 def _best_two_curve_split(x: np.ndarray, q: np.ndarray, order: np.ndarray) -> tuple | None:
