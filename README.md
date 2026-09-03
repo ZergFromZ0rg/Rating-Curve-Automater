@@ -73,23 +73,24 @@ rca app
 
 (`rca app` just runs `streamlit run` on the packaged `app.py` for you.)
 
-Opens in your browser. **Everything you set is in the sidebar; everything the
-tool produces is in the main pane.**
+Opens in your browser as **one column, top to bottom — no sidebar.**
 
-- **Sidebar** – upload the workbook, then: *Data source* (sheet / header row,
-  collapsed unless needed); *Columns* (auto-detected, badged ✅ / ⚠️, opens
-  itself when detection is unsure — starred fields are required, optional ones
-  are behind a checkbox); *Fit settings* (site picker, `h₀` estimate-or-set,
-  curve shape); and an *Advanced* drawer (fit method + Bayesian sampler, impose
-  exponent `b`, assumed discharge-uncertainty %, off-curve flag threshold,
-  rating-table step, Manning cross-section check).
-- **Main pane** – a valid / excluded / flagged row summary with drill-downs; a
-  plausibility banner and the fitted equation; `a` / `b` / `h₀` / R² with one
-  line of context (gaugings used, how `h₀` came about, the `b` CI, band width);
-  the rating-curve plot with shaded confidence / prediction bands (log-log
-  toggle); a *Diagnostics* section (temporal-drift verdict, changepoint,
-  residuals-over-time plot, Manning check); and the Excel-report / rating-table
-  downloads with a preview.
+1. **Upload** the workbook.
+2. **Detected layout** – a collapsed panel that opens itself (`⚠️`) only when
+   auto-detection is unsure: sheet / header row, and the column mapping (three
+   starred required fields in a row; optional ones behind a checkbox).
+3. **Fit controls** – one row: `h₀` (estimate, or tick to set by hand), curve
+   shape (single / 2 / 3 / auto-by-BIC), method (least squares / Bayesian, with
+   a sampler pick). A *More options* drawer holds: impose exponent `b`, assumed
+   discharge-uncertainty %, the off-curve flag threshold, rating-table step, and
+   the Manning cross-section check.
+4. **Result** – a valid / excluded / flagged row summary with drill-downs; a
+   plausibility banner and the fitted equation; `a` / `b` / `h₀` / R² with one
+   line of context (gaugings used, how `h₀` came about, the `b` CI, band width);
+   the rating-curve plot with shaded confidence / prediction bands (log-log
+   toggle); a *Diagnostics* section (temporal-drift verdict, changepoint,
+   residuals-over-time plot, Manning check); and the Excel-report / rating-table
+   downloads with a preview.
 
 Both the web UI and the CLI are thin views over `rating_curve_automater/workflow.py`.
 
@@ -381,11 +382,13 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 **Unreleased**
 
-- **Streamlined web UI** – all inputs moved to the sidebar, all results to the
-  main pane; column mapping collapses to the three required fields (with a
-  confidence badge that opens the panel when detection is unsure); the fit
-  result is one plausibility banner + equation + four numbers + a single context
-  line instead of a stack of captions; advanced knobs live in one drawer.
+- **Streamlined web UI** – rebuilt as a single top-to-bottom column with **no
+  sidebar**: upload → a *Detected layout* panel that opens itself only when
+  detection is unsure (three required column dropdowns, optional ones behind a
+  checkbox) → one row of fit controls (`h₀`, curve shape, method) with a *More
+  options* drawer → the result (one plausibility banner + equation + four
+  numbers + a single context line, the plot, a *Diagnostics* section, the
+  downloads).
 - **Imposed exponent** – `fit_rating_curve(fixed_b=…)`, `rca fit --exponent`,
   `rca report --exponent` and an "Impose exponent b" checkbox in the app: pin the
   power-law exponent from the control type and fit only the coefficient, for
