@@ -9,7 +9,6 @@ import pandas as pd
 from openpyxl.chart import Reference, ScatterChart, Series
 from openpyxl.chart.legend import LegendEntry
 from openpyxl.chart.marker import Marker
-from openpyxl.drawing.text import RichTextProperties
 from openpyxl.styles import PatternFill
 
 from rating_curve_automater.rating_curve_drift import assess_temporal_drift
@@ -28,24 +27,26 @@ def _line_width_pt(points: float) -> int:
     return int(round(points * EMU_PER_PT))
 
 
-def _style_axes(chart, x_title: str, y_title: str) -> None:
-    """Give a chart proper bottom/left axes with titles and tick labels.
+def _style_axes(chart, subtitle: str) -> None:
+    """Make a chart's axes visible with tick labels, and put the axis meaning in
+    the chart title.
 
-    openpyxl leaves both axes at ``axPos='l'`` and ``delete=True`` by default, so
-    a freshly built chart opens in Excel with no visible axes; and axis titles
-    are written un-rotated, so the y-title lands on top of the tick numbers.
+    openpyxl leaves both axes at ``axPos='l'`` / ``delete=True`` (so nothing
+    shows), and it writes *axis titles* with no layout, so Excel drops them right
+    on top of the tick numbers — no reliable way to offset them. So: no axis
+    titles; the units go in ``subtitle`` (used as the chart title) instead.
     """
-    chart.x_axis.title = x_title
-    chart.y_axis.title = y_title
+    chart.title = subtitle
+    chart.x_axis.title = None
+    chart.y_axis.title = None
     chart.x_axis.delete = False
     chart.y_axis.delete = False
     chart.x_axis.axPos = "b"
     chart.y_axis.axPos = "l"
     chart.x_axis.majorTickMark = "out"
     chart.y_axis.majorTickMark = "out"
-    chart.x_axis.tickLblPos = "low"      # keep date/number labels below the plot
-    # Read the y-axis title bottom-to-top so it sits clear of the tick labels.
-    chart.y_axis.title.tx.rich.bodyPr = RichTextProperties(rot=-5400000, vert="horz")
+    chart.x_axis.tickLblPos = "nextTo"
+    chart.y_axis.tickLblPos = "nextTo"
     if chart.legend is not None:
         chart.legend.overlay = False     # legend beside the plot, not over the data
 
@@ -375,8 +376,7 @@ def export_rating_curve_report(
             plot_ws.append(row)
 
         chart = ScatterChart()
-        chart.title = "Rating Curve"
-        _style_axes(chart, "Stage above bed (m)", "Discharge (m³/s)")
+        _style_axes(chart, "Rating curve — discharge Q (m³/s) vs stage above bed (m)")
         chart.style = 13
         chart.legend.position = "r"
         chart.height = 10
@@ -452,8 +452,7 @@ def _write_manning_sheet(writer, manning: dict) -> None:
 
     n_rows = ws.max_row
     chart = ScatterChart()
-    chart.title = f"Fitted curve vs cross-section (Manning) — {manning['flag']}"
-    _style_axes(chart, "Stage (m)", "Discharge (m³/s)")
+    _style_axes(chart, f"Fitted vs Manning, Q (m³/s) vs stage (m) — {manning['flag']}")
     chart.style = 13
     chart.legend.position = "r"
     chart.height = 10
@@ -481,8 +480,7 @@ def _write_residuals_over_time_sheet(writer, drift: dict) -> None:
     # A scatter against the (numeric) date axis: Excel then auto-spaces the tick
     # labels instead of stacking every gauging date, and one series needs no legend.
     chart = ScatterChart()
-    chart.title = f"Rating-curve residuals over time — drift flag: {drift['flag']}"
-    _style_axes(chart, "Gauging date", "Observed − modelled (%)")
+    _style_axes(chart, f"Residuals (observed − modelled, %) over time — drift flag: {drift['flag']}")
     chart.legend = None
     chart.style = 13
     chart.height = 9
@@ -514,8 +512,7 @@ def _write_band_sheet(writer, bands: dict) -> None:
     ws = writer.book["Rating Curve Band"]
     n_rows = ws.max_row
     chart = ScatterChart()
-    chart.title = f"Rating curve with {pct}% confidence / prediction bands"
-    _style_axes(chart, "Stage above bed (m)", "Discharge (m³/s)")
+    _style_axes(chart, f"Rating curve + {pct}% bands — Q (m³/s) vs stage above bed (m)")
     chart.style = 13
     chart.legend.position = "r"
     chart.height = 10
