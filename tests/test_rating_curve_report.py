@@ -87,16 +87,19 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
         drawings = {n for n in names if re.fullmatch(r"xl/drawings/drawing\d+\.xml", n)}
         assert len(drawings) == len(charts)
 
-        # the rating-curve chart is an XY scatter with visible, titled, bottom+left axes
+        # the rating-curve chart: XY scatter, visible bottom+left axes, and a
+        # manual plot rectangle so the chart title / x-title / y-title get margins
         plot_xml = norm(zf.read("xl/charts/chart1.xml").decode())
         assert "scatterChart>" in plot_xml
         assert len(re.findall(r"<(?:c:)?valAx>", plot_xml)) == 2   # both axes are value axes
         assert len(re.findall(r"<(?:c:)?catAx>", plot_xml)) == 0
         assert re.findall(r'axPos val="([^"]+)"/>', plot_xml) == ["b", "l"]
         assert re.findall(r'delete val="([^"]+)"/>', plot_xml) == ["0", "0"]  # axes shown
-        # no overlap-prone axis titles: the units live in the chart title instead
-        assert plot_xml.count("<title>") == 1
-        assert "discharge Q (m³/s) vs stage above bed (m)" in plot_xml
+        assert plot_xml.count("<title>") == 3          # chart + x-axis + y-axis titles
+        assert "Stage above bed (m)" in plot_xml and "Discharge Q (m³/s)" in plot_xml
+        assert 'rot="-5400000"' in plot_xml            # y-title reads bottom-to-top
+        assert "<manualLayout>" in plot_xml            # reserved title margins
+        assert re.search(r"<title>.*?<overlay val=\"0\"/>", plot_xml, re.S)  # title not over data
 
         # the band chart drops the duplicate "upper bound" legend entries
         if "xl/charts/chart2.xml" in names:
@@ -104,11 +107,11 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
             legend = re.search(r"<(?:c:)?legend>.*?</(?:c:)?legend>", band_xml, re.S).group()
             assert legend.count('<delete val="1"/>') == 2
 
-        # residuals-over-time: a legend-free scatter against real dates
+        # residuals-over-time: legend-free, thinned date axis
         if "xl/charts/chart3.xml" in names:
-            res_xml = zf.read("xl/charts/chart3.xml").decode()
-            assert "scatterChart>" in res_xml
+            res_xml = norm(zf.read("xl/charts/chart3.xml").decode())
             assert re.search(r"<(?:c:)?legend>", res_xml) is None
+            assert re.search(r'tickLblSkip val="[2-9]', res_xml)
 
 
 def test_report_dates_are_readable_not_hashmarks(tmp_path):
