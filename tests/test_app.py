@@ -66,3 +66,18 @@ def test_app_column_override(tmp_path):
     assert not at.error
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["Valid rows"] == str(n)
+
+
+@pytest.mark.skipif(not DATASET.exists(), reason="bundled dataset missing")
+def test_app_impose_exponent_checkbox():
+    at = _app().run()
+    at.file_uploader[0].upload("data.xlsx", DATASET.read_bytes(), XLSX_MIME)
+    at.run()
+
+    cb = next(c for c in at.checkbox if c.label == "Impose exponent b")
+    cb.set_value(True).run()
+
+    assert not at.exception
+    b_metric = next(m for m in at.metric if m.label == "b")
+    assert float(b_metric.value) == pytest.approx(2.0)
+    assert b_metric.delta == "imposed"

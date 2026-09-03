@@ -276,6 +276,53 @@ def test_inverse_relationship_is_flagged_and_can_raise():
         fit_rating_curve(df, h0=0.4, strict=True)
 
 
+def test_fixed_exponent_fits_only_the_coefficient():
+    # A clean b=2 curve: imposing b=2 should recover a and leave b exactly 2.
+    h = np.linspace(0.25, 1.2, 40)
+    q = 0.7 * (h - 0.18) ** 2.0
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    fit = fit_rating_curve(df, h0=0.18, fixed_b=2.0)
+
+    assert fit["b"] == 2.0
+    assert fit["b_fixed"] is True
+    assert fit["a"] == pytest.approx(0.7, rel=1e-6)
+    assert fit["r_squared"] > 0.999
+
+
+def test_fixed_exponent_rescues_a_record_that_cannot_identify_b():
+    # Scattered low-flow cloud: a free fit is rejected (b <= 0 / uncorrelated),
+    # but imposing the control exponent yields a usable, if provisional, curve.
+    rng = np.random.default_rng(0)
+    h = rng.uniform(0.05, 0.5, 30)
+    q = rng.uniform(0.02, 0.13, 30)
+    df = pd.DataFrame({"stage_m": h, "discharge_cms": q, "is_valid": True})
+
+    free = fit_rating_curve(df, h0=0.0)
+    assert free["is_plausible"] is False
+    assert any(w.startswith("→") for w in free["warnings"])  # actionable guidance
+
+    imposed = fit_rating_curve(df, h0=0.0, fixed_b=2.0, n_bootstrap=200, random_state=0)
+    assert imposed["b"] == 2.0
+    assert imposed["is_plausible"] is True          # not "not a rating curve"
+    assert not any("≤ 0" in w for w in imposed["warnings"])
+    assert imposed["bands"]["b_ci"] is None         # b has no CI when it is imposed
+    assert imposed["bands"]["a_ci"] is not None
+
+
+@pytest.mark.parametrize("bad_kwargs", [
+    {"fixed_b": 0.0},
+    {"fixed_b": -1.0},
+    {"fixed_b": 2.0, "segments": 2},
+    {"fixed_b": 2.0, "segments": "auto"},
+    {"fixed_b": 2.0, "method": "bayesian"},
+])
+def test_fixed_exponent_rejects_unsupported_combinations(bad_kwargs):
+    df = _synthetic_curve()
+    with pytest.raises(ValueError):
+        fit_rating_curve(df, h0=0.18, n_bootstrap=0, **bad_kwargs)
+
+
 def test_too_few_points_is_a_non_critical_warning():
     df = pd.DataFrame({
         "Stage Above Bed (m)": [0.25, 0.6, 1.0],

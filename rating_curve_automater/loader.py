@@ -311,9 +311,14 @@ def load_measurements(
 
     mapping = resolve_columns(list(df.columns), overrides=column_overrides)
     for canonical, cols in mapping.ambiguous.items():
-        messages.append(
-            f"{canonical}: '{mapping.fields[canonical]}' chosen over {cols[1:]}."
-        )
+        msg = f"{canonical}: '{mapping.fields[canonical]}' chosen over {cols[1:]}."
+        if canonical in (STAGE_M, DISCHARGE_CMS):
+            msg += (
+                " If the rating should use one of the others, override it "
+                f"(CLI: rca validate --{'stage' if canonical == STAGE_M else 'discharge'}-column '<name>'; "
+                "library: column_overrides=; UI: the Column mapping dropdown)."
+            )
+        messages.append(msg)
 
     units: dict[str, UnitConversion] = {}
     if mapping.is_complete:

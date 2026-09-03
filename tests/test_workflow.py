@@ -150,3 +150,17 @@ def test_workflow_on_bundled_dataset(tmp_path):
     outcome = wf.run_fit()
     assert abs(outcome.params["h0"] - 0.18) < 0.05
     assert outcome.params["r_squared"] > 0.98
+
+
+def test_workflow_run_fit_accepts_an_imposed_exponent(tmp_path):
+    wf = RatingCurveWorkflow()
+    wf.load_and_validate(DATASET)
+
+    outcome = wf.run_fit(fixed_b=2.0)
+
+    assert outcome.params["b"] == 2.0
+    assert outcome.params["b_fixed"] is True
+    assert "b imposed" in outcome.summary_line()
+    out = wf.export_report(tmp_path / "imposed.xlsx")
+    summary = pd.read_excel(out, sheet_name="Summary")
+    assert (summary["Value"].astype(str) == "imposed by user (not fitted)").any()

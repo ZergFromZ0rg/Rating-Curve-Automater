@@ -46,6 +46,7 @@ def _loglog_fit(
     discharge: np.ndarray,
     h0: float,
     weights: np.ndarray | None = None,
+    fixed_b: float | None = None,
 ) -> dict | None:
     """Fit ``Q = a * (H - h0)^b`` by linear regression in log-log space.
 
@@ -54,20 +55,39 @@ def _loglog_fit(
     measurement uncertainty pull the curve less. ``None`` (or a constant array)
     is an ordinary least-squares fit.
 
-    Returns ``None`` when fewer than two points have ``H - h0 > 0``.
+    ``fixed_b`` pins the exponent to a caller-supplied value (e.g. ``2.0`` for a
+    section control) and fits **only** the coefficient ``a`` — the log-space
+    intercept that best matches the gaugings for that slope. Use it when a narrow
+    or scattered low-flow record cannot identify ``b`` on its own but the control
+    type is known.
+
+    Returns ``None`` when fewer than two points have ``H - h0 > 0`` (or fewer
+    than one, when ``fixed_b`` is given and only ``a`` is free).
     """
     x = stage - h0
     mask = x > 0
-    if int(mask.sum()) < 2:
+    if int(mask.sum()) < (1 if fixed_b is not None else 2):
         return None
 
     discharge_m = discharge[mask]
     x_m = x[mask]
     w_m = weights[mask] if weights is not None else None
 
-    slope, intercept = np.polyfit(np.log(x_m), np.log(discharge_m), 1, w=w_m)
+    if fixed_b is not None:
+        b = float(fixed_b)
+        # Least-squares intercept for a known slope: the (weight²-weighted) mean
+        # of ln Q − b·ln x. Matches numpy.polyfit's convention where ``w`` scales
+        # the residual, i.e. w² in the normal equations.
+        resid_ln = np.log(discharge_m) - b * np.log(x_m)
+        if w_m is not None:
+            ww = np.asarray(w_m, dtype=float) ** 2
+            intercept = float(np.sum(ww * resid_ln) / np.sum(ww))
+        else:
+            intercept = float(np.mean(resid_ln))
+    else:
+        slope, intercept = np.polyfit(np.log(x_m), np.log(discharge_m), 1, w=w_m)
+        b = float(slope)
     a = float(np.exp(intercept))
-    b = float(slope)
 
     predicted = a * np.power(x_m, b)
     residuals = discharge_m - predicted
@@ -285,12 +305,13 @@ def assess_fit(fit: dict, stage: np.ndarray, discharge: np.ndarray) -> tuple[lis
     """
     warnings_out: list[str] = []
     critical = False
+    b_is_fixed = bool(fit.get("b_fixed"))
 
     if fit.get("is_segmented"):
         b_value = min(seg["b"] for seg in fit["segments"])
     else:
         b_value = fit["b"]
-    if b_value <= 0:
+    if b_value <= 0 and not b_is_fixed:
         warnings_out.append(
             f"fitted exponent b = {b_value:.3f} ≤ 0 — discharge does not increase "
             f"with stage; this is not a valid rating curve"
@@ -303,10 +324,19 @@ def assess_fit(fit: dict, stage: np.ndarray, discharge: np.ndarray) -> tuple[lis
         with np.errstate(all="ignore"):
             corr = float(np.corrcoef(np.log(x[mask]), np.log(discharge[mask]))[0, 1])
         if np.isfinite(corr) and abs(corr) < MIN_ABS_LOG_CORR:
-            warnings_out.append(
-                f"stage and discharge are essentially uncorrelated (r = {corr:.2f})"
-            )
-            critical = True
+            if b_is_fixed:
+                # The user has asserted the control physics; the data not backing
+                # it up is a reliability warning, not proof it is "not a rating".
+                warnings_out.append(
+                    f"stage and discharge are essentially uncorrelated (r = {corr:.2f}) "
+                    f"— the imposed exponent is not supported by these gaugings; "
+                    f"treat the curve as provisional"
+                )
+            else:
+                warnings_out.append(
+                    f"stage and discharge are essentially uncorrelated (r = {corr:.2f})"
+                )
+                critical = True
 
     # Judge goodness of fit on the weighted R² when the fit was weighted, so a
     # deliberately down-weighted outlier is not counted against it.
@@ -360,6 +390,19 @@ def assess_fit(fit: dict, stage: np.ndarray, discharge: np.ndarray) -> tuple[lis
                         f"segment split is uncertain"
                     )
 
+    # When the fit is rejected outright, say what to do about it rather than
+    # leaving the user with a dead end. A free power law that the gaugings do not
+    # constrain is the case where imposing the control's exponent (or fixing the
+    # stage column) actually helps.
+    if critical and not b_is_fixed:
+        warnings_out.append(
+            "→ these gaugings do not define a rating curve on their own. If the "
+            "control type is known, impose its exponent (CLI: rca fit --exponent 2.0; "
+            "API: fit_rating_curve(fixed_b=2.0)) and fit only a and h0. If the stage "
+            "numbers look wrong, re-check the column mapping — the validator prints "
+            "every stage-like column it did not pick."
+        )
+
     return warnings_out, critical
 
 
@@ -399,8 +442,9 @@ def _fit_single(
     h0: float,
     h0_estimated: bool,
     weights: np.ndarray | None = None,
+    fixed_b: float | None = None,
 ) -> dict:
-    fit = _loglog_fit(stage, discharge, h0, weights)
+    fit = _loglog_fit(stage, discharge, h0, weights, fixed_b=fixed_b)
     if fit is None:
         raise ValueError(
             f"Not enough points with stage above h0={h0:.3f} to fit a rating curve."
@@ -410,6 +454,7 @@ def _fit_single(
         "is_segmented": False,
         "a": a,
         "b": b,
+        "b_fixed": fixed_b is not None,
         "h0": float(h0),
         "h0_estimated": h0_estimated,
         "r_squared": fit["r_squared"],
@@ -537,6 +582,7 @@ def fit_rating_curve(
     segment_criterion: str = "bic",
     method: str = "ols",
     bayesian_sampler: str = "auto",
+    fixed_b: float | None = None,
     _diagnostics: bool = True,
 ) -> dict:
     """Fit a power-law rating curve: ``Q = a * (H - h0)^b``.
@@ -581,12 +627,26 @@ def fit_rating_curve(
     sampler -- ``"auto"`` (NUTS for small records, ADVI above), ``"nuts"`` or
     ``"advi"``. ``method="ols"`` (default) is the log-log least-squares path
     described above.
+
+    ``fixed_b`` pins the exponent (``b``) to a known value and fits only ``a``
+    (and, if not supplied, ``h0``). It is the standard "impose the control
+    physics" move for a low-flow or narrow-range record that cannot identify the
+    exponent by itself. Single-segment ``ols`` only; the fit dict carries
+    ``b_fixed = True``.
     """
     if method not in ("ols", "bayesian"):
         raise ValueError("method must be 'ols' or 'bayesian'.")
     auto_segments = isinstance(segments, str) and segments.lower() == "auto"
     if not auto_segments and (not isinstance(segments, int) or isinstance(segments, bool) or segments < 1):
         raise ValueError("segments must be a positive integer or 'auto'.")
+    if fixed_b is not None:
+        fixed_b = float(fixed_b)
+        if not np.isfinite(fixed_b) or fixed_b <= 0:
+            raise ValueError("fixed_b (the imposed exponent) must be a positive number.")
+        if method != "ols":
+            raise ValueError("fixed_b is only supported with method='ols'.")
+        if auto_segments or (isinstance(segments, int) and segments != 1):
+            raise ValueError("fixed_b is only supported with segments=1 (a single power law).")
 
     working = select_valid_measurements(df)
     stage = working[STAGE_COL].to_numpy(dtype=float)
@@ -623,7 +683,7 @@ def fit_rating_curve(
                 n_segments=None, max_segments=max_segments, criterion=segment_criterion,
             )
         elif segments == 1:
-            fit = _fit_single(stage, discharge, float(h0), h0_estimated, weights)
+            fit = _fit_single(stage, discharge, float(h0), h0_estimated, weights, fixed_b=fixed_b)
         else:
             fit = _fit_piecewise(
                 stage, discharge, float(h0), h0_estimated, weights,
@@ -685,6 +745,7 @@ def leave_one_out_error(
     discharge_uncertainty_pct: float = DEFAULT_DISCHARGE_UNCERTAINTY_PCT,
     max_segments: int = DEFAULT_MAX_SEGMENTS,
     segment_criterion: str = "bic",
+    fixed_b: float | None = None,
 ) -> dict | None:
     """Leave-one-out cross-validated prediction error of the rating curve.
 
@@ -709,7 +770,7 @@ def leave_one_out_error(
                 train, h0=h0, segments=segments,
                 discharge_uncertainty_pct=discharge_uncertainty_pct,
                 max_segments=max_segments, segment_criterion=segment_criterion,
-                n_bootstrap=0, _diagnostics=False,
+                fixed_b=fixed_b, n_bootstrap=0, _diagnostics=False,
             )
         except (ValueError, np.linalg.LinAlgError):
             continue
@@ -740,6 +801,11 @@ def main() -> None:
         help="1 = single power law; an integer >= 2 = that many continuous segments; 'auto' = pick by BIC.",
     )
     parser.add_argument("--site", type=str, default=None, help="Fit only rows with this value in the 'site' column.")
+    parser.add_argument(
+        "--exponent", type=float, default=None, dest="fixed_b", metavar="B",
+        help="Impose the power-law exponent b (e.g. 2.0 for a section control) and fit "
+             "only a; single power law only. Use when the gaugings can't identify b.",
+    )
     parser.add_argument("--method", choices=("ols", "bayesian"), default="ols",
                         help="'ols' = log-log least squares (default); 'bayesian' = ratingcurve/PyMC (needs the [bayesian] extra).")
     parser.add_argument("--sampler", choices=("auto", "nuts", "advi"), default="auto",
@@ -796,9 +862,12 @@ def main() -> None:
             random_state=args.seed,
             method=args.method,
             bayesian_sampler=args.sampler,
+            fixed_b=args.fixed_b,
         )
     except ImplausibleRatingCurve as exc:
         raise SystemExit("Implausible rating curve:\n  - " + "\n  - ".join(exc.warnings))
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     except ImportError as exc:
         raise SystemExit(str(exc))
 
@@ -829,7 +898,7 @@ def main() -> None:
             )
     else:
         print(f"a = {fit['a']:.6f}")
-        print(f"b = {fit['b']:.6f}")
+        print(f"b = {fit['b']:.6f}" + (" (imposed, not fitted)" if fit.get("b_fixed") else ""))
     print(f"Overall R^2 = {fit['r_squared']:.4f}")
     if fit.get("weighted"):
         print(f"Weighted R^2 = {fit['r_squared_weighted']:.4f}")
@@ -841,6 +910,7 @@ def main() -> None:
         loo = leave_one_out_error(
             df, segments=seg_arg, h0=args.h0,
             discharge_uncertainty_pct=args.uncertainty_pct,
+            fixed_b=args.fixed_b,
         )
         if loo:
             print(
