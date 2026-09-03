@@ -3,9 +3,10 @@
 Launch it with ``rca app`` (from any install), which runs ``streamlit run`` on
 this file.
 
-Layout convention: **every input lives in the sidebar, every result in the main
-pane.** A thin view over :class:`rating_curve_automater.workflow.RatingCurveWorkflow`,
-the headless load -> validate -> fit -> export controller.
+Layout: **one column, top to bottom, no sidebar.** Upload -> a compact detected
+layout you only open if it's wrong -> a single row of fit controls -> the result.
+A thin view over :class:`rating_curve_automater.workflow.RatingCurveWorkflow`, the
+headless load -> validate -> fit -> export controller.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from rating_curve_automater.rating_curve_fitting import DEFAULT_DISCHARGE_UNCERT
 from rating_curve_automater.rating_table import DEFAULT_STAGE_STEP_M
 from rating_curve_automater.workflow import DEFAULT_UNCERTAINTY_THRESHOLD, RatingCurveWorkflow
 
-st.set_page_config(page_title="Rating Curve Automater", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Rating Curve Automater", page_icon="📈", layout="centered")
 
 AUTO = "(auto-detect)"
 
@@ -105,30 +106,23 @@ def _friendly(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- #
-# Empty state
+# 1 · Upload  (empty state)
 # --------------------------------------------------------------------------- #
 st.title("📈 Rating Curve Automater")
-
-uploaded = st.sidebar.file_uploader(
-    "Gauging workbook", type=["xlsx", "xls", "csv"],
-    help="A table of field gaugings: a date, a stage and a discharge column. "
-         "Messy headers, extra sheets and unit labels are handled automatically.",
+st.caption(
+    "Fit `Q = a · (H − h₀)^b` from field gaugings — with uncertainty bands, a "
+    "stage → discharge table, and temporal-drift checks. Provisional software, "
+    "no warranty; review every curve as a qualified hydrographer."
 )
 
+uploaded = st.file_uploader(
+    "Gauging workbook — a date, a stage and a discharge column",
+    type=["xlsx", "xls", "csv"],
+    help="Messy headers, extra sheets, unit labels, placeholder values and "
+         "footer rows are handled automatically.",
+)
 if uploaded is None:
-    st.markdown(
-        "#### Turn a spreadsheet of field gaugings into a rating curve.\n"
-        "Fits `Q = a · (H − h₀)^b` — single or multi-segment — with uncertainty "
-        "bands, a stage → discharge table, and temporal-drift checks."
-    )
-    a, b, c = st.columns(3)
-    a.info("**1 · Upload**\n\nDrop your `.xlsx` / `.xls` / `.csv` in the sidebar.")
-    b.info("**2 · Check**\n\nConfirm the detected columns and pick the fit settings.")
-    c.info("**3 · Download**\n\nGrab the Excel report and the rating table.")
-    st.caption(
-        "Provisional software, no warranty — review every curve as a qualified "
-        "hydrographer before operational use."
-    )
+    st.info("⬆  Upload a gauging workbook to begin  —  `.xlsx` / `.xls` / `.csv`.")
     st.stop()
 
 data = uploaded.getvalue()
@@ -141,79 +135,87 @@ if st.session_state.get("file_key") != file_key:
     st.session_state["path"] = str(tmp)
 path = st.session_state["path"]
 
-
-# --------------------------------------------------------------------------- #
-# Sidebar · data source
-# --------------------------------------------------------------------------- #
-with st.sidebar:
-    try:
-        peek = pd.ExcelFile(path).sheet_names if suffix != ".csv" else []
-    except Exception:
-        peek = []
-
-    with st.expander("Data source", expanded=False):
-        if peek:
-            sheet_choice = st.selectbox("Sheet", [AUTO, *peek])
-            sheet = None if sheet_choice == AUTO else sheet_choice
-        else:
-            sheet = None
-        header_text = st.text_input("Header row (1 = first row)", value="", placeholder="auto-detect")
-        header_row = (int(header_text) - 1) if header_text.strip().isdigit() else None
-
 try:
-    base_report = probe(file_key, path, sheet, header_row)
+    peek = pd.ExcelFile(path).sheet_names if suffix != ".csv" else []
+except Exception:
+    peek = []
+
+
+# --------------------------------------------------------------------------- #
+# 2 · Detected layout  (open it only if something's off)
+# --------------------------------------------------------------------------- #
+# A first probe with whatever sheet/header the widgets already hold, so the
+# expander can decide whether to open itself before its widgets are drawn.
+_sheet0 = st.session_state.get("sheet_pick")
+_sheet0 = None if _sheet0 in (None, AUTO) else _sheet0
+_hdr0 = st.session_state.get("hdr_pick", "")
+_hdr0 = int(_hdr0) - 1 if str(_hdr0).strip().isdigit() else None
+try:
+    pre = probe(file_key, path, _sheet0, _hdr0)
 except Exception as exc:  # noqa: BLE001
     st.error(f"Could not read the file: {exc}")
     st.stop()
 
+pre_ok = pre.mapping.is_complete and not pre.mapping.ambiguous and not pre.needs_review
 
-# --------------------------------------------------------------------------- #
-# Sidebar · columns
-# --------------------------------------------------------------------------- #
-resolved = [FIELD_LABELS[f] for f in REQUIRED_FIELDS if base_report.mapping.fields.get(f)]
-cols_ok = len(resolved) == len(REQUIRED_FIELDS) and not base_report.mapping.ambiguous
-with st.sidebar:
-    with st.expander(
-        "Columns  " + ("✅" if cols_ok else "⚠️"),
-        expanded=not cols_ok,
-    ):
-        if cols_ok:
-            st.caption("Auto-detected. Change any that are wrong.")
-        else:
-            st.caption("Auto-detection is unsure here — set the starred fields.")
+with st.expander("Detected layout" + ("" if pre_ok else "  ⚠️  check this"),
+                 expanded=not pre_ok):
+    top = st.columns([2, 1])
+    if peek:
+        sheet_pick = top[0].selectbox("Sheet", [AUTO, *peek], key="sheet_pick")
+        sheet = None if sheet_pick == AUTO else sheet_pick
+    else:
+        sheet = None
+    hdr_pick = top[1].text_input("Header row", value="", placeholder="auto", key="hdr_pick")
+    header_row = int(hdr_pick) - 1 if hdr_pick.strip().isdigit() else None
 
-        options = [AUTO, *base_report.source_columns]
+    try:
+        base_report = probe(file_key, path, sheet, header_row)
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Could not read the file: {exc}")
+        st.stop()
 
-        def _map(field_name: str) -> str | None:
-            guess = base_report.mapping.fields.get(field_name)
-            idx = options.index(guess) if guess in base_report.source_columns else 0
-            star = " *" if field_name in REQUIRED_FIELDS else ""
-            pick = st.selectbox(FIELD_LABELS[field_name] + star, options, index=idx,
-                                key=f"map_{field_name}")
-            return pick if pick != AUTO else None
+    st.caption("Blank = auto-detect. Set the starred fields if they're wrong.")
+    options = [AUTO, *base_report.source_columns]
 
-        overrides: dict[str, str] = {}
-        optional = [f for f in ALL_FIELDS if f not in REQUIRED_FIELDS]
-        for field_name in REQUIRED_FIELDS:
-            chosen = _map(field_name)
+    def _map(field_name: str, col) -> str | None:
+        guess = base_report.mapping.fields.get(field_name)
+        idx = options.index(guess) if guess in base_report.source_columns else 0
+        star = " *" if field_name in REQUIRED_FIELDS else ""
+        pick = col.selectbox(FIELD_LABELS[field_name] + star, options, index=idx,
+                             key=f"map_{field_name}")
+        return pick if pick != AUTO else None
+
+    overrides: dict[str, str] = {}
+    req_cols = st.columns(len(REQUIRED_FIELDS))
+    for col, field_name in zip(req_cols, REQUIRED_FIELDS):
+        chosen = _map(field_name, col)
+        if chosen:
+            overrides[field_name] = chosen
+
+    optional = [f for f in ALL_FIELDS if f not in REQUIRED_FIELDS]
+    if any(base_report.mapping.fields.get(f) for f in optional) or \
+            st.checkbox("Map optional columns (quality, field notes, site, uncertainty…)"):
+        opt_cols = st.columns(3)
+        for i, field_name in enumerate(optional):
+            chosen = _map(field_name, opt_cols[i % 3])
             if chosen:
                 overrides[field_name] = chosen
-        show_optional = any(base_report.mapping.fields.get(f) for f in optional) or \
-            st.checkbox("Optional columns (quality, notes, site…)")
-        if show_optional:
-            for field_name in optional:
-                chosen = _map(field_name)
-                if chosen:
-                    overrides[field_name] = chosen
-        if len(set(overrides.values())) != len(overrides):
-            st.warning("The same column is mapped to more than one field.")
+
+    if len(set(overrides.values())) != len(overrides):
+        st.warning("The same column is mapped to more than one field.")
+
+    if base_report.needs_review:
+        st.caption("What the loader saw:")
+        st.text(base_report.describe())
+        st.dataframe(_friendly(base_report.sample), width="stretch", hide_index=True)
 
 try:
     result = validate(file_key, path, sheet, header_row, tuple(sorted(overrides.items())))
 except Exception as exc:  # noqa: BLE001
     st.error(
-        "Couldn't identify a **date**, **stage** and **discharge** column — "
-        "open **Columns** in the sidebar and set the starred fields.\n\n"
+        "Couldn't identify a **date**, a **stage** and a **discharge** column. "
+        "Open **Detected layout** above and set the starred fields.\n\n"
         f"```\n{exc}\n```"
     )
     st.stop()
@@ -222,113 +224,95 @@ report = result.load_report
 
 
 # --------------------------------------------------------------------------- #
-# Sidebar · fit settings
+# 3 · Fit controls  (one row + a "more options" drawer)
 # --------------------------------------------------------------------------- #
-with st.sidebar:
-    st.subheader("Fit settings")
+site = None
+if result.is_multi_site:
+    site_pick = st.selectbox("Site", ["(all sites)", *result.sites])
+    site = None if site_pick == "(all sites)" else site_pick
 
-    site = None
-    if result.is_multi_site:
-        site_choice = st.selectbox("Site", ["(all sites)", *result.sites])
-        site = None if site_choice == "(all sites)" else site_choice
+c1, c2, c3 = st.columns(3)
 
-    h0_mode = st.radio(
-        "Stage of zero flow (h₀)", ["Estimate from the gaugings", "Set a value"],
-        help="h₀ is the stage at which flow stops. Estimated from the low-flow "
-             "gaugings by default; set it by hand if you have a surveyed value.",
+set_h0 = c1.checkbox("Set h₀ by hand", help="Stage of zero flow. Off = estimate "
+                     "it from the low-flow gaugings.")
+h0 = c1.number_input("h₀ (m)", value=0.18, step=0.01, format="%.3f",
+                     label_visibility="collapsed") if set_h0 else None
+
+segments = c2.selectbox(
+    "Curve shape", [1, 2, 3, "auto"],
+    format_func=lambda n: {1: "Single power law", 2: "2 segments", 3: "3 segments",
+                           "auto": "Auto (BIC picks)"}[n],
+    help="A compound control (low-flow notch under a wider channel) needs more "
+         "than one power-law segment.",
+)
+
+method_label = c3.selectbox(
+    "Method", ["Least squares", "Bayesian"],
+    help="Least squares: fast log–log regression (auto-weighted by a discharge-"
+         "uncertainty column). Bayesian: thodson-usgs `ratingcurve` (PyMC) — "
+         "samples h₀, slopes and breakpoints jointly; needs the `[bayesian]` "
+         "extra and ≈ 1 min for the first fit.",
+)
+method = "bayesian" if method_label == "Bayesian" else "ols"
+
+bayesian_sampler = "auto"
+if method == "bayesian":
+    bayesian_sampler = st.radio(
+        "Sampler", ["auto", "nuts", "advi"], horizontal=True,
+        format_func=lambda s: {"auto": "auto (NUTS ≤ 200 gaugings)",
+                               "nuts": "NUTS — exact, slow",
+                               "advi": "ADVI — variational, fast"}[s],
     )
-    h0 = None
-    if h0_mode == "Set a value":
-        h0 = st.number_input("h₀ (m)", value=0.18, step=0.01, format="%.3f")
 
-    shape = st.selectbox(
-        "Curve shape",
-        [1, 2, 3, "auto"],
-        format_func=lambda n: {
-            1: "Single power law",
-            2: "2 segments (compound control)",
-            3: "3 segments",
-            "auto": "Auto — let BIC choose 1–4",
-        }[n],
-        help="A compound control (e.g. a low-flow notch under a wider channel) "
-             "needs more than one power-law segment.",
+fixed_b = None
+with st.expander("More options"):
+    if method == "ols":
+        if st.checkbox("Impose exponent b",
+                       help="Pin b from the control type (≈1.5 weir, ≈2–2.5 section "
+                            "control) and fit only a — for records too sparse or "
+                            "scattered to identify b. Single-segment only."):
+            fixed_b = st.number_input("b", min_value=0.1, max_value=5.0, value=2.0,
+                                      step=0.1, format="%.2f")
+            if segments != 1:
+                st.caption("↳ forced to a single segment.")
+                segments = 1
+
+    o1, o2 = st.columns(2)
+    uncertainty_pct = o1.number_input(
+        "Assumed discharge uncertainty (±%)", min_value=0.5, max_value=100.0,
+        value=float(DEFAULT_DISCHARGE_UNCERTAINTY_PCT), step=0.5,
+        help="For gaugings with no value in a 'Discharge uncertainty (±%)' column.",
     )
-    segments: int | str = shape
-
-    method_label = st.radio(
-        "Fitting method", ["Least squares", "Bayesian"], horizontal=True,
-        help="Least squares: fast log–log regression (auto-weighted when a "
-             "discharge-uncertainty column varies). Bayesian: thodson-usgs "
-             "`ratingcurve` (PyMC) — samples h₀, the segment slopes and the "
-             "breakpoints jointly. Needs the `[bayesian]` extra; first fit ≈ 1 min.",
+    rating_step = o2.number_input(
+        "Rating-table step (m)", min_value=0.001, max_value=1.0,
+        value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
     )
-    method = "bayesian" if method_label == "Bayesian" else "ols"
+    threshold = st.slider(
+        "Flag a gauging once it sits this far off the curve", 5, 100,
+        int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
+    ) / 100.0
 
-    bayesian_sampler = "auto"
-    if method == "bayesian":
-        bayesian_sampler = st.radio(
-            "Sampler", ["auto", "nuts", "advi"], horizontal=True,
-            format_func=lambda s: {"auto": "auto (NUTS ≤ 200 gaugings)",
-                                   "nuts": "NUTS (exact, slow)",
-                                   "advi": "ADVI (variational, fast)"}[s],
-            help="NUTS places breakpoints more reliably; ADVI is a fast approximation.",
-        )
+    st.markdown("**Manning cross-section check** — sanity-check the extrapolation "
+                "against surveyed channel geometry.")
+    sec_file = st.file_uploader("Cross-section CSV (offset + elevation)", type=["csv"], key="xsec")
+    m1, m2, m3 = st.columns(3)
+    section_slope = m1.number_input("Channel slope (m/m)", min_value=0.0, value=0.0,
+                                    step=0.0001, format="%.5f")
+    section_n = m2.number_input("Manning's n (0 = calibrate)", min_value=0.0, max_value=0.3,
+                                value=0.0, step=0.005, format="%.3f")
+    section_offset = m3.number_input("Stage → WSE offset (m)", value=0.0, step=0.01, format="%.3f")
 
-    # ---- advanced ----------------------------------------------------------
-    with st.expander("Advanced", expanded=False):
-        fixed_b = None
-        if method == "ols":
-            if st.checkbox(
-                "Impose exponent b",
-                help="Pin the exponent from the control type (≈1.5 weir, ≈2–2.5 "
-                     "section control) and fit only a. Use when the gaugings are "
-                     "too few / too scattered to identify b. Single-segment only.",
-            ):
-                fixed_b = st.number_input("b", min_value=0.1, max_value=5.0,
-                                          value=2.0, step=0.1, format="%.2f")
-                if segments != 1:
-                    st.caption("↳ forced to a single segment.")
-                    segments = 1
-
-        uncertainty_pct = st.number_input(
-            "Assumed discharge uncertainty (±%)",
-            min_value=0.5, max_value=100.0, value=float(DEFAULT_DISCHARGE_UNCERTAINTY_PCT), step=0.5,
-            help="Used for gaugings with no value in a 'Discharge uncertainty (±%)' "
-                 "column. Map that column to weight the fit point-by-point.",
-        )
-        threshold = st.slider(
-            "Flag a gauging when it sits this far off the curve",
-            5, 100, int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
-        ) / 100.0
-        rating_step = st.number_input(
-            "Rating-table step (m)", min_value=0.001, max_value=1.0,
-            value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
-        )
-
-        st.markdown("**Manning cross-section check** *(optional)*")
-        st.caption(
-            "Sanity-checks the curve's extrapolation above the highest gauging "
-            "against surveyed channel geometry."
-        )
-        sec_file = st.file_uploader("Cross-section CSV (offset + elevation)", type=["csv"], key="xsec")
-        section_slope = st.number_input("Channel slope (m/m)", min_value=0.0, value=0.0,
-                                        step=0.0001, format="%.5f")
-        section_n = st.number_input("Manning's n (0 = calibrate)", min_value=0.0, max_value=0.3,
-                                    value=0.0, step=0.005, format="%.3f")
-        section_offset = st.number_input("Stage → water-surface-elevation offset (m)",
-                                         value=0.0, step=0.01, format="%.3f")
-
-        section_csv = None
-        if sec_file is not None and section_slope > 0:
-            sec_path = Path(tempfile.gettempdir()) / f"rca_xsec_{hashlib.md5(sec_file.getvalue()).hexdigest()}.csv"
-            sec_path.write_bytes(sec_file.getvalue())
-            section_csv = str(sec_path)
-        elif sec_file is not None:
-            st.warning("Enter a positive channel slope to run the Manning check.")
+    section_csv = None
+    if sec_file is not None and section_slope > 0:
+        sec_path = Path(tempfile.gettempdir()) / f"rca_xsec_{hashlib.md5(sec_file.getvalue()).hexdigest()}.csv"
+        sec_path.write_bytes(sec_file.getvalue())
+        section_csv = str(sec_path)
+    elif sec_file is not None:
+        st.warning("Enter a positive channel slope to run the Manning check.")
 
 
 # --------------------------------------------------------------------------- #
-# Run
+# 4 · Run
 # --------------------------------------------------------------------------- #
 try:
     with st.spinner("Sampling the posterior… (~1 min on the first Bayesian fit)"
@@ -351,11 +335,9 @@ p = outcome.params
 
 
 # --------------------------------------------------------------------------- #
-# Main · data check
+# 5 · Rows used
 # --------------------------------------------------------------------------- #
-if site:
-    st.caption(f"Site: **{site}**")
-
+st.divider()
 cleaned = result.cleaned
 used = result.valid_count
 total = used + result.invalid_count
@@ -375,17 +357,11 @@ if result.warning_count:
         st.dataframe(_friendly(cleaned.loc[cleaned["has_warning"], cols]),
                      width="stretch", hide_index=True)
 
-if report.needs_review:
-    with st.expander("⚠️ The loader wasn't fully confident — check its choices"):
-        st.text(report.describe())
-        st.dataframe(_friendly(report.sample), width="stretch", hide_index=True)
 
+# --------------------------------------------------------------------------- #
+# 6 · The rating curve
+# --------------------------------------------------------------------------- #
 st.divider()
-
-
-# --------------------------------------------------------------------------- #
-# Main · the rating curve
-# --------------------------------------------------------------------------- #
 if not outcome.is_plausible:
     st.error("**Not a plausible rating curve** — see the notes below.")
 elif outcome.warnings:
@@ -406,7 +382,6 @@ mcol[1].metric("b", f"{p['b']:.4f}", "imposed" if p.get("b_fixed") else None, de
 mcol[2].metric("h₀ (m)", f"{p['h0']:.3f}")
 mcol[3].metric(r2_label, f"{r2_value:.3f}")
 
-# one tidy line of context instead of a stack of metric sub-labels + captions
 bits = [f"{p['n_points']} gaugings used"]
 if p["h0_estimated"]:
     hd = p.get("h0_diagnostics") or {}
@@ -463,7 +438,7 @@ with st.expander("How the fit was set up"):
 
 
 # --------------------------------------------------------------------------- #
-# Main · diagnostics
+# 7 · Diagnostics
 # --------------------------------------------------------------------------- #
 drift = p.get("drift")
 mc = p.get("manning")
@@ -498,10 +473,9 @@ if mc:
 
 
 # --------------------------------------------------------------------------- #
-# Main · downloads
+# 8 · Download
 # --------------------------------------------------------------------------- #
 st.divider()
-st.subheader("Download")
 tag = f"_{site}" if site else ""
 g1, g2 = st.columns(2)
 g1.download_button(
