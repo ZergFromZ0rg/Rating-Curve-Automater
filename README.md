@@ -73,16 +73,23 @@ rca app
 
 (`rca app` just runs `streamlit run` on the packaged `app.py` for you.)
 
-Opens in your browser. Upload an `.xlsx` / `.xls` / `.csv`, then work down the page:
+Opens in your browser. **Everything you set is in the sidebar; everything the
+tool produces is in the main pane.**
 
-1. **Sheet / header row** (sidebar) – blank = auto-detect.
-2. **Column mapping** – each field is pre-filled from auto-detection; override any that are wrong from the dropdowns (the page re-runs live).
-3. **Detected layout** – expandable panel with the chosen sheet, header row, units and a preview; opens automatically when confidence is low.
-4. **Validation** – valid / invalid / warning counts, with expandable tables of the flagged rows.
-5. **Fit** – fit method (least squares / Bayesian, plus a NUTS/ADVI sampler pick for Bayesian), site picker (if the workbook has a `Site` column), `h0` (estimate or enter), segments (1 / 2 / 3 / auto-by-BIC), discharge-uncertainty %, rating-table step, and an optional **Manning cross-section check** (upload a section + slope). Shows `a` / `b` / `h0` (with how `h0` was estimated) / R², the `b` confidence interval, and a rating-curve plot with shaded confidence / prediction bands (log-log toggle).
-6. **Export** – download the multi-sheet Excel report and the stage→discharge rating table (CSV), with a preview.
-
-If the gaugings carry dates, a **residuals-over-time** panel and a rating-shift notice appear under the plot; a Manning-check notice appears when a cross-section is given.
+- **Sidebar** – upload the workbook, then: *Data source* (sheet / header row,
+  collapsed unless needed); *Columns* (auto-detected, badged ✅ / ⚠️, opens
+  itself when detection is unsure — starred fields are required, optional ones
+  are behind a checkbox); *Fit settings* (site picker, `h₀` estimate-or-set,
+  curve shape); and an *Advanced* drawer (fit method + Bayesian sampler, impose
+  exponent `b`, assumed discharge-uncertainty %, off-curve flag threshold,
+  rating-table step, Manning cross-section check).
+- **Main pane** – a valid / excluded / flagged row summary with drill-downs; a
+  plausibility banner and the fitted equation; `a` / `b` / `h₀` / R² with one
+  line of context (gaugings used, how `h₀` came about, the `b` CI, band width);
+  the rating-curve plot with shaded confidence / prediction bands (log-log
+  toggle); a *Diagnostics* section (temporal-drift verdict, changepoint,
+  residuals-over-time plot, Manning check); and the Excel-report / rating-table
+  downloads with a preview.
 
 Both the web UI and the CLI are thin views over `rating_curve_automater/workflow.py`.
 
@@ -374,6 +381,11 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 **Unreleased**
 
+- **Streamlined web UI** – all inputs moved to the sidebar, all results to the
+  main pane; column mapping collapses to the three required fields (with a
+  confidence badge that opens the panel when detection is unsure); the fit
+  result is one plausibility banner + equation + four numbers + a single context
+  line instead of a stack of captions; advanced knobs live in one drawer.
 - **Imposed exponent** – `fit_rating_curve(fixed_b=…)`, `rca fit --exponent`,
   `rca report --exponent` and an "Impose exponent b" checkbox in the app: pin the
   power-law exponent from the control type and fit only the coefficient, for

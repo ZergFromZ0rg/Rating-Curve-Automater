@@ -17,6 +17,7 @@ rating_curve_report.xlsx
 .DS_Store
 .idea/
 .vscode/
+.claude/settings.local.json
 
 # Comparison / scratch work
 .venv_cmp/

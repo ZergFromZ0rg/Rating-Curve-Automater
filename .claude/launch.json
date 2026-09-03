@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rca-app",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "streamlit", "run", "rating_curve_automater/app.py", "--server.headless=true", "--server.port=8521", "--browser.gatherUsageStats=false"],
+      "port": 8521
+    }
+  ]
+}
