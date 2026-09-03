@@ -81,6 +81,15 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
         drawings = {n for n in zf.namelist() if re.fullmatch(r"xl/drawings/drawing\d+\.xml", n)}
         assert len(drawings) == len(charts)
 
+        # the rating-curve chart is an XY scatter with visible, titled, bottom+left axes
+        plot_xml = zf.read("xl/charts/chart1.xml").decode()
+        assert "scatterChart>" in plot_xml
+        assert len(re.findall(r"<(?:c:)?valAx>", plot_xml)) == 2   # both axes are value axes
+        assert len(re.findall(r"<(?:c:)?catAx>", plot_xml)) == 0
+        assert re.findall(r'axPos val="([^"]+)"', plot_xml) == ["b", "l"]
+        assert re.findall(r'delete val="([^"]+)"', plot_xml) == ["0", "0"]  # axes shown
+        assert "Stage above bed (m)" in plot_xml and "Discharge (m³/s)" in plot_xml
+
 
 def test_report_dates_are_readable_not_hashmarks(tmp_path):
     # openpyxl leaves default column widths, so a datetime shows as ###### until
