@@ -13,6 +13,17 @@ from rating_curve_automater.rating_curve_fitting import select_valid_measurement
 from rating_curve_automater.rating_table import DEFAULT_STAGE_STEP_M, build_rating_table
 from rating_curve_automater.schema import DATE, DISCHARGE_CMS, SITE, STAGE_M
 
+# openpyxl writes chart line widths straight into the drawing XML as EMU, and the
+# OOXML schema requires an integer there — a fractional value makes Excel strip
+# the whole chart on open ("Removed Part: /xl/drawings/drawingN.xml"). Express
+# widths in points and convert.
+EMU_PER_PT = 12700
+
+
+def _line_width_pt(points: float) -> int:
+    return int(round(points * EMU_PER_PT))
+
+
 # Friendly column labels used in the exported workbook.
 OUT_DATE = "Date"
 OUT_STAGE = "Stage Above Bed (m)"
@@ -306,13 +317,13 @@ def export_rating_curve_report(
         chart.set_categories(categories)
 
         chart.series[0].graphicalProperties.line.solidFill = "1F77B4"
-        chart.series[0].graphicalProperties.line.width = 2
+        chart.series[0].graphicalProperties.line.width = _line_width_pt(2)
         chart.series[0].marker.size = 6
         chart.series[0].marker.symbol = "circle"
         chart.series[0].marker.graphicalProperties.solidFill = "1F77B4"
 
         chart.series[1].graphicalProperties.line.solidFill = "2CA02C"
-        chart.series[1].graphicalProperties.line.width = 2
+        chart.series[1].graphicalProperties.line.width = _line_width_pt(2)
         chart.series[1].marker.size = 4
         chart.series[1].marker.symbol = "triangle"
         chart.series[1].marker.graphicalProperties.solidFill = "2CA02C"
@@ -438,7 +449,7 @@ def _write_band_sheet(writer, bands: dict) -> None:
     chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
 
     chart.series[0].graphicalProperties.line.solidFill = "D62728"
-    chart.series[0].graphicalProperties.line.width = 2.5
+    chart.series[0].graphicalProperties.line.width = _line_width_pt(2.5)
     for i in (1, 2):
         chart.series[i].graphicalProperties.line.solidFill = "1F77B4"
     for i in (3, 4):

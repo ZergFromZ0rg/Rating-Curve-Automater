@@ -383,6 +383,10 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 **Unreleased**
 
+- **Fixed a corrupt Excel report** – the "Rating Curve Band" chart was written
+  with a fractional line width, which the OOXML schema forbids; Excel stripped
+  the chart on open ("Removed Part: /xl/drawings/drawing2.xml"). Chart line
+  widths are now integer EMU.
 - **Streamlined web UI** – rebuilt as a single top-to-bottom column with **no
   sidebar**: upload → a *Detected layout* panel that opens itself only when
   detection is unsure (three required column dropdowns, optional ones behind a
