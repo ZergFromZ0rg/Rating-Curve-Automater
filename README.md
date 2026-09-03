@@ -381,44 +381,41 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 ## Changelog
 
-**Unreleased**
+**v0.3.0** (current release)
 
-- **Excel report charts** – the rating-curve and band charts are now XY
-  **scatter** charts with proper numeric, titled, bottom/left axes (openpyxl
-  defaulted both axes to the left and hidden, so they rendered without labels).
-  Gaugings plot as points against a smooth 120-point curve line.
-- **Fixed a corrupt Excel report** – the "Rating Curve Band" chart was written
-  with a fractional line width, which the OOXML schema forbids; Excel stripped
-  the chart on open ("Removed Part: /xl/drawings/drawing2.xml"). Chart line
-  widths are now integer EMU.
-- **Readable dates** in the report – date columns are formatted `yyyy-mm-dd` and
-  every column is sized to its content (no more `######`).
+- **Imposed exponent** – `fit_rating_curve(fixed_b=…)`, `rca fit --exponent`,
+  `rca report --exponent`, `run_fit(fixed_b=…)` and an "Impose the exponent b"
+  checkbox in the app: pin the power-law exponent from the control type and fit
+  only the coefficient, for low-flow / narrow-range records that cannot identify
+  `b` themselves. Single-segment OLS; the fit carries `b_fixed` and an
+  uncorrelated cloud becomes a "provisional" warning rather than a hard reject.
+- **Smarter stuck-gauge detection** – a repeated stage value is only rejected
+  when the discharge repeats too, or the readings are a consecutive run of
+  visits; a common low-flow stage revisited over the years with different
+  discharges is no longer dropped.
+- **Actionable rejection message** – a rejected free fit now points at the fixes
+  (impose the exponent, or correct the stage column); ambiguous-column messages
+  name the override. New `rca validate --stage-column / --discharge-column /
+  --date-column`; `clean_measurements_to_csv(column_overrides=…)`.
+- **Rebuilt web UI** – a single top-to-bottom column, **no sidebar**: upload → a
+  *Detected layout* panel that opens itself only when detection is unsure →
+  a *Fit* section with curve shape, method (least-squares / Bayesian), *set h₀ by
+  hand* and *impose the exponent b* all on screen, plus *Uncertainty & point
+  flags* and *Advanced* drawers → the result (banner + equation + a/b/h₀/R² +
+  one context line), the plot, *Diagnostics*, and the downloads.
+- **Excel report fixes** – (1) a fractional chart line width was corrupting the
+  file (`Removed Part: /xl/drawings/drawing2.xml` on open) — now integer EMU;
+  (2) date columns show as `yyyy-mm-dd` and every column is auto-sized (no more
+  `######`); (3) the rating-curve / band / Manning charts are XY **scatter**
+  charts with visible bottom/left axes, titles and legend each given their own
+  margin (openpyxl reserves none), and the residuals chart thins its date axis.
 - **Bayesian pins** – `[bayesian]` extra bumped to `ratingcurve>=1.1`,
   `pymc>=5.28,<6` (ratingcurve 1.1 requires pymc ≥ 5.28.1); tested against
   ratingcurve 1.1.0 / pymc 5.28.
-- **Streamlined web UI** – rebuilt as a single top-to-bottom column with **no
-  sidebar**: upload → a *Detected layout* panel that opens itself only when
-  detection is unsure (three required column dropdowns, optional ones behind a
-  checkbox) → one row of fit controls (`h₀`, curve shape, method) with a *More
-  options* drawer → the result (one plausibility banner + equation + four
-  numbers + a single context line, the plot, a *Diagnostics* section, the
-  downloads).
-- **Imposed exponent** – `fit_rating_curve(fixed_b=…)`, `rca fit --exponent`,
-  `rca report --exponent` and an "Impose exponent b" checkbox in the app: pin the
-  power-law exponent from the control type and fit only the coefficient, for
-  low-flow / narrow-range records that cannot identify `b` themselves.
-- **Smarter stuck-gauge detection** – a repeated stage value is only rejected
-  when the discharge repeats too, or the readings are consecutive visits; a
-  common low-flow stage revisited over the years with different discharges is no
-  longer dropped.
-- **Actionable rejection message** – when a free fit is rejected as "not a rating
-  curve" the tool now points at the fixes (impose the exponent, or correct the
-  stage column), and ambiguous-column messages name the override flag.
-- `rca validate` gains `--stage-column` / `--discharge-column` / `--date-column`.
-- CI now runs the test suite on Python 3.10–3.13 (plus a pyflakes lint) on every
-  push and pull request.
+- CI runs the suite on Python 3.10–3.13 (plus a pyflakes lint) on every push and
+  pull request.
 
-**v0.2.0** (current release) — replace the deprecated Streamlit
+**v0.2.0** — replace the deprecated Streamlit
 `use_container_width` with `width="stretch"` (the app extra now needs
 `streamlit>=1.49`); `rca app` exits cleanly on Ctrl+C; declare Python 3.10–3.13.
 
