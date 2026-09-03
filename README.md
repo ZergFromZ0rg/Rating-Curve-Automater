@@ -245,7 +245,7 @@ Two orthogonal choices, not a menu of overlapping ones:
   residual curvature. Pass an explicit `h0` to override; the Bayesian backend
   infers `h0` from the posterior instead.
 - **Imposed exponent** – `fit_rating_curve(..., fixed_b=2.0)` / `rca fit
-  --exponent 2.0` / the "Impose exponent b" checkbox pins `b` to a value from the
+  --exponent 2.0` / the "Impose the exponent b" checkbox pins `b` to a value from the
   control type (≈ 1.5 broad-crested weir, ≈ 2–2.5 natural section control, ≈ 2.5
   V-notch) and fits **only** `a` (and `h0`, if not supplied). Use it when a
   narrow-range or scattered low-flow record cannot identify the exponent on its
