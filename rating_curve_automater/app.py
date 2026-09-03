@@ -233,29 +233,24 @@ report = result.load_report
 
 
 # --------------------------------------------------------------------------- #
-# 3 · Fit controls  (one row + a "more options" drawer)
+# 3 · Fit controls
 # --------------------------------------------------------------------------- #
+st.subheader("Fit")
+
 site = None
 if result.is_multi_site:
-    site_pick = st.selectbox("Site", ["(all sites)", *result.sites])
-    site = None if site_pick == "(all sites)" else site_pick
+    site = st.selectbox("Site", ["(all sites)", *result.sites])
+    site = None if site == "(all sites)" else site
 
-c1, c2, c3 = st.columns(3)
-
-set_h0 = c1.checkbox("Set h₀ by hand", help="Stage of zero flow. Off = estimate "
-                     "it from the low-flow gaugings.")
-h0 = c1.number_input("h₀ (m)", value=0.18, step=0.01, format="%.3f",
-                     label_visibility="collapsed") if set_h0 else None
-
-segments = c2.selectbox(
+c1, c2 = st.columns(2)
+segments = c1.selectbox(
     "Curve shape", [1, 2, 3, "auto"],
     format_func=lambda n: {1: "Single power law", 2: "2 segments", 3: "3 segments",
-                           "auto": "Auto (BIC picks)"}[n],
-    help="A compound control (low-flow notch under a wider channel) needs more "
+                           "auto": "Auto (BIC picks 1–4)"}[n],
+    help="A compound control (a low-flow notch under a wider channel) needs more "
          "than one power-law segment.",
 )
-
-method_label = c3.selectbox(
+method_label = c2.selectbox(
     "Method", ["Least squares", "Bayesian"],
     help="Least squares: fast log–log regression (auto-weighted by a discharge-"
          "uncertainty column). Bayesian: thodson-usgs `ratingcurve` (PyMC) — "
@@ -273,39 +268,58 @@ if method == "bayesian":
                                "advi": "ADVI — variational, fast"}[s],
     )
 
-fixed_b = None
-with st.expander("More options"):
-    if method == "ols":
-        if st.checkbox("Impose exponent b",
-                       help="Pin b from the control type (≈1.5 weir, ≈2–2.5 section "
-                            "control) and fit only a — for records too sparse or "
-                            "scattered to identify b. Single-segment only."):
-            fixed_b = st.number_input("b", min_value=0.1, max_value=5.0, value=2.0,
-                                      step=0.1, format="%.2f")
-            if segments != 1:
-                st.caption("↳ forced to a single segment.")
-                segments = 1
+t1, t2 = st.columns(2)
+set_h0 = t1.checkbox("Set h₀ (stage of zero flow) by hand",
+                     help="Off = estimate it from the low-flow gaugings.")
+h0 = t1.number_input("h₀ (m)", value=0.18, step=0.01, format="%.3f") if set_h0 else None
 
-    o1, o2 = st.columns(2)
-    uncertainty_pct = o1.number_input(
-        "Assumed discharge uncertainty (±%)", min_value=0.5, max_value=100.0,
+fixed_b = None
+if method == "ols":
+    if t2.checkbox("Impose the exponent b",
+                   help="Pin b from the control type (≈1.5 broad-crested weir, "
+                        "≈2–2.5 natural section control, ≈2.5 V-notch) and fit only "
+                        "a — for records too sparse or scattered to identify b on "
+                        "their own. Single-segment only."):
+        fixed_b = t2.number_input("b", min_value=0.1, max_value=5.0, value=2.0,
+                                  step=0.1, format="%.2f")
+        if segments != 1:
+            t2.caption("↳ forced to a single segment.")
+            segments = 1
+
+# ---- uncertainty & flags --------------------------------------------------
+with st.expander("Uncertainty & point flags"):
+    uncertainty_pct = st.number_input(
+        "Assumed discharge-measurement uncertainty (±%)", min_value=0.5, max_value=100.0,
         value=float(DEFAULT_DISCHARGE_UNCERTAINTY_PCT), step=0.5,
-        help="For gaugings with no value in a 'Discharge uncertainty (±%)' column.",
-    )
-    rating_step = o2.number_input(
-        "Rating-table step (m)", min_value=0.001, max_value=1.0,
-        value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
+        help="Applied to gaugings with no value in a mapped 'Discharge uncertainty "
+             "(±%)' column. Sets the confidence/prediction band width; a *varying* "
+             "mapped column also re-weights the fit point by point.",
     )
     threshold = st.slider(
-        "Flag a gauging once it sits this far off the curve", 5, 100,
-        int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
+        "Mark a gauging 'uncertain' in the report once it sits this far off the curve",
+        5, 100, int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
     ) / 100.0
 
-    st.markdown("**Manning cross-section check** — sanity-check the extrapolation "
-                "against surveyed channel geometry.")
+# ---- advanced -----------------------------------------------------------
+with st.expander("Advanced"):
+    rating_step = st.number_input(
+        "Rating-table step (m)", min_value=0.001, max_value=1.0,
+        value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
+        help="Stage increment of the stage → discharge lookup table.",
+    )
+
+    st.markdown("**Manning cross-section check** *(optional — flood work)*")
+    st.caption(
+        "The rating is fitted only over the stages you've gauged. To read "
+        "discharge at higher stages it must be **extrapolated**, and a power law "
+        "can extrapolate badly. Give a surveyed cross-section (offset + bed "
+        "elevation) and the water-surface slope: the tool builds an independent "
+        "Manning discharge from the channel geometry and flags where the "
+        "extrapolated rating disagrees with it. Skip it for a purely low-flow rating."
+    )
     sec_file = st.file_uploader("Cross-section CSV (offset + elevation)", type=["csv"], key="xsec")
     m1, m2, m3 = st.columns(3)
-    section_slope = m1.number_input("Channel slope (m/m)", min_value=0.0, value=0.0,
+    section_slope = m1.number_input("Water-surface slope (m/m)", min_value=0.0, value=0.0,
                                     step=0.0001, format="%.5f")
     section_n = m2.number_input("Manning's n (0 = calibrate)", min_value=0.0, max_value=0.3,
                                 value=0.0, step=0.005, format="%.3f")
@@ -317,7 +331,7 @@ with st.expander("More options"):
         sec_path.write_bytes(sec_file.getvalue())
         section_csv = str(sec_path)
     elif sec_file is not None:
-        st.warning("Enter a positive channel slope to run the Manning check.")
+        st.warning("Enter a positive water-surface slope to run the Manning check.")
 
 
 # --------------------------------------------------------------------------- #

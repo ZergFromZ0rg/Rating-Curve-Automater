@@ -79,11 +79,12 @@ Opens in your browser as **one column, top to bottom — no sidebar.**
 2. **Detected layout** – a collapsed panel that opens itself (`⚠️`) only when
    auto-detection is unsure: sheet / header row, and the column mapping (three
    starred required fields in a row; optional ones behind a checkbox).
-3. **Fit controls** – one row: `h₀` (estimate, or tick to set by hand), curve
-   shape (single / 2 / 3 / auto-by-BIC), method (least squares / Bayesian, with
-   a sampler pick). A *More options* drawer holds: impose exponent `b`, assumed
-   discharge-uncertainty %, the off-curve flag threshold, rating-table step, and
-   the Manning cross-section check.
+3. **Fit** – the choices that change the curve are all on screen: curve shape
+   (single / 2 / 3 / auto-by-BIC), method (least squares / Bayesian + sampler),
+   and two toggles — *set `h₀` by hand* and *impose the exponent `b`*. Two
+   drawers hold the rest: *Uncertainty & point flags* (assumed discharge
+   uncertainty %, the "mark a gauging uncertain" threshold) and *Advanced*
+   (rating-table step, the Manning cross-section check).
 4. **Result** – a valid / excluded / flagged row summary with drill-downs; a
    plausibility banner and the fitted equation; `a` / `b` / `h₀` / R² with one
    line of context (gaugings used, how `h₀` came about, the `b` CI, band width);
