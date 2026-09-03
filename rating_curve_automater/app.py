@@ -255,24 +255,27 @@ with st.sidebar:
     )
     segments: int | str = shape
 
+    method_label = st.radio(
+        "Fitting method", ["Least squares", "Bayesian"], horizontal=True,
+        help="Least squares: fast log–log regression (auto-weighted when a "
+             "discharge-uncertainty column varies). Bayesian: thodson-usgs "
+             "`ratingcurve` (PyMC) — samples h₀, the segment slopes and the "
+             "breakpoints jointly. Needs the `[bayesian]` extra; first fit ≈ 1 min.",
+    )
+    method = "bayesian" if method_label == "Bayesian" else "ols"
+
+    bayesian_sampler = "auto"
+    if method == "bayesian":
+        bayesian_sampler = st.radio(
+            "Sampler", ["auto", "nuts", "advi"], horizontal=True,
+            format_func=lambda s: {"auto": "auto (NUTS ≤ 200 gaugings)",
+                                   "nuts": "NUTS (exact, slow)",
+                                   "advi": "ADVI (variational, fast)"}[s],
+            help="NUTS places breakpoints more reliably; ADVI is a fast approximation.",
+        )
+
     # ---- advanced ----------------------------------------------------------
     with st.expander("Advanced", expanded=False):
-        method_label = st.radio(
-            "Fitting method", ["Least squares", "Bayesian"], horizontal=True,
-            help="Least squares: fast log–log regression (auto-weighted when a "
-                 "discharge-uncertainty column varies). Bayesian: thodson-usgs "
-                 "`ratingcurve` (PyMC) — needs the `[bayesian]` extra; first fit ≈ 1 min.",
-        )
-        method = "bayesian" if method_label == "Bayesian" else "ols"
-
-        bayesian_sampler = "auto"
-        if method == "bayesian":
-            bayesian_sampler = st.radio(
-                "Sampler", ["auto", "nuts", "advi"], horizontal=True,
-                format_func=lambda s: {"auto": "auto", "nuts": "NUTS (exact)",
-                                       "advi": "ADVI (fast)"}[s],
-            )
-
         fixed_b = None
         if method == "ols":
             if st.checkbox(
