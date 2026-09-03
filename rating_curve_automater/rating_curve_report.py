@@ -495,8 +495,8 @@ def _write_residuals_over_time_sheet(writer, drift: dict) -> None:
     chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
     _style_axes(chart, f"Rating-curve residuals over time — drift flag: {drift['flag']}",
                 "Gauging date", "Observed − modelled (%)")
-    # ~35 gaugings on a text axis: show roughly every Nth date so they don't stack
-    skip = max(1, (ws.max_row - 1) // 8)
+    # ~35 gaugings on a text axis: show ~6 dates so the labels don't stack
+    skip = max(1, (ws.max_row - 1) // 6)
     chart.x_axis.tickLblSkip = skip
     chart.x_axis.tickMarkSkip = skip
 
