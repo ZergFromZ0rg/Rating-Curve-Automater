@@ -74,7 +74,7 @@ def test_app_impose_exponent_checkbox():
     at.file_uploader[0].upload("data.xlsx", DATASET.read_bytes(), XLSX_MIME)
     at.run()
 
-    cb = next(c for c in at.checkbox if c.label == "Impose exponent b")
+    cb = next(c for c in at.checkbox if c.label == "Impose the exponent b")
     cb.set_value(True).run()
 
     assert not at.exception
