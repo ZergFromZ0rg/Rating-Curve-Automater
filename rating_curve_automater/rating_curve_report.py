@@ -6,8 +6,10 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
-from openpyxl.chart import LineChart, Reference, ScatterChart, Series
+from openpyxl.chart import Reference, ScatterChart, Series
+from openpyxl.chart.legend import LegendEntry
 from openpyxl.chart.marker import Marker
+from openpyxl.drawing.text import RichTextProperties
 from openpyxl.styles import PatternFill
 
 from rating_curve_automater.rating_curve_drift import assess_temporal_drift
@@ -30,7 +32,8 @@ def _style_axes(chart, x_title: str, y_title: str) -> None:
     """Give a chart proper bottom/left axes with titles and tick labels.
 
     openpyxl leaves both axes at ``axPos='l'`` and ``delete=True`` by default, so
-    a freshly built chart opens in Excel with no visible axes or labels.
+    a freshly built chart opens in Excel with no visible axes; and axis titles
+    are written un-rotated, so the y-title lands on top of the tick numbers.
     """
     chart.x_axis.title = x_title
     chart.y_axis.title = y_title
@@ -40,6 +43,11 @@ def _style_axes(chart, x_title: str, y_title: str) -> None:
     chart.y_axis.axPos = "l"
     chart.x_axis.majorTickMark = "out"
     chart.y_axis.majorTickMark = "out"
+    chart.x_axis.tickLblPos = "low"      # keep date/number labels below the plot
+    # Read the y-axis title bottom-to-top so it sits clear of the tick labels.
+    chart.y_axis.title.tx.rich.bodyPr = RichTextProperties(rot=-5400000, vert="horz")
+    if chart.legend is not None:
+        chart.legend.overlay = False     # legend beside the plot, not over the data
 
 
 def _xy_series(ws, x_col: int, y_col: int, n_rows: int, title: str | None = None) -> Series:
@@ -463,24 +471,29 @@ def _write_residuals_over_time_sheet(writer, drift: dict) -> None:
     """'Residuals Over Time' sheet: each gauging's percent difference from the
     curve against its date, plus a chart."""
     resid = drift["residuals"].copy()
+    date_col_name = resid.columns[0]
+    resid[date_col_name] = pd.to_datetime(resid[date_col_name], errors="coerce")
     resid.to_excel(writer, sheet_name="Residuals Over Time", index=False)
     ws = writer.book["Residuals Over Time"]
+    n_rows = ws.max_row
 
     pct_col = list(resid.columns).index("Residual (%)") + 1
-    chart = LineChart()
+    # A scatter against the (numeric) date axis: Excel then auto-spaces the tick
+    # labels instead of stacking every gauging date, and one series needs no legend.
+    chart = ScatterChart()
     chart.title = f"Rating-curve residuals over time — drift flag: {drift['flag']}"
     _style_axes(chart, "Gauging date", "Observed − modelled (%)")
+    chart.legend = None
     chart.style = 13
     chart.height = 9
     chart.width = 20
-    chart.add_data(Reference(ws, min_col=pct_col, max_col=pct_col, min_row=1, max_row=ws.max_row),
-                   titles_from_data=True)
-    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
-    s = chart.series[0]
-    s.graphicalProperties.line.noFill = True
-    s.marker.symbol = "circle"
-    s.marker.size = 6
+    chart.x_axis.number_format = "yyyy"
+
+    s = _xy_series(ws, 1, pct_col, n_rows, None)
+    s.marker = Marker(symbol="circle", size=6)
     s.marker.graphicalProperties.solidFill = "1F77B4"
+    s.graphicalProperties.line.noFill = True
+    chart.series.append(s)
     ws.add_chart(chart, "J2")
 
 
@@ -512,9 +525,9 @@ def _write_band_sheet(writer, bands: dict) -> None:
     specs = [
         (2, "Fitted curve", "D62728", 2.5),
         (3, f"{pct}% confidence", "1F77B4", 1.0),
-        (4, f"{pct}% confidence", "1F77B4", 1.0),
+        (4, None, "1F77B4", 1.0),
         (5, f"{pct}% prediction", "9467BD", 1.0),
-        (6, f"{pct}% prediction", "9467BD", 1.0),
+        (6, None, "9467BD", 1.0),
     ]
     for col, title, colour, pt in specs:
         s = _xy_series(ws, 1, col, n_rows, title)
@@ -522,6 +535,9 @@ def _write_band_sheet(writer, bands: dict) -> None:
         s.graphicalProperties.line.solidFill = colour
         s.graphicalProperties.line.width = _line_width_pt(pt)
         chart.series.append(s)
+    # the two "upper" bound series (idx 2, 4) share a name with their "lower"
+    # twin — drop them from the legend so it reads: curve / confidence / prediction
+    chart.legend.legendEntry = [LegendEntry(idx=2, delete=True), LegendEntry(idx=4, delete=True)]
     ws.add_chart(chart, "H2")
 
 

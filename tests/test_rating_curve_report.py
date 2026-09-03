@@ -89,6 +89,20 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
         assert re.findall(r'axPos val="([^"]+)"', plot_xml) == ["b", "l"]
         assert re.findall(r'delete val="([^"]+)"', plot_xml) == ["0", "0"]  # axes shown
         assert "Stage above bed (m)" in plot_xml and "Discharge (m³/s)" in plot_xml
+        # y-axis title reads bottom-to-top so it clears the tick numbers
+        assert 'rot="-5400000"' in plot_xml
+        assert re.findall(r'tickLblPos val="([^"]+)"', plot_xml)[0] == "low"
+
+        # the band chart drops the duplicate "upper bound" legend entries
+        if "xl/charts/chart2.xml" in {n for n in zf.namelist()}:
+            band_xml = zf.read("xl/charts/chart2.xml").decode()
+            deleted = re.findall(r"<legendEntry><idx val=\"\d+\"/><delete val=\"1\"/>", band_xml)
+            assert len(deleted) == 2
+
+        # residuals-over-time: a legend-free scatter against real dates
+        if "xl/charts/chart3.xml" in {n for n in zf.namelist()}:
+            res_xml = zf.read("xl/charts/chart3.xml").decode()
+            assert "scatterChart>" in res_xml and "<legend>" not in res_xml
 
 
 def test_report_dates_are_readable_not_hashmarks(tmp_path):
