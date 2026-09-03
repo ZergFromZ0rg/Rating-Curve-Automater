@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rating-curve-automater"
-version = "0.2.0"
+version = "0.3.0"
 description = "Build a stage-discharge rating curve from messy field-gauging spreadsheets: clean, validate, fit (weighted / piecewise), bootstrap uncertainty bands, rating table, and temporal-drift diagnostics."
 readme = "README.md"
 requires-python = ">=3.10"
