@@ -6,9 +6,11 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
-from openpyxl.chart import Reference, ScatterChart, Series
+from openpyxl.chart import LineChart, Reference, ScatterChart, Series
+from openpyxl.chart.layout import Layout, ManualLayout
 from openpyxl.chart.legend import LegendEntry
 from openpyxl.chart.marker import Marker
+from openpyxl.drawing.text import RichTextProperties
 from openpyxl.styles import PatternFill
 
 from rating_curve_automater.rating_curve_drift import assess_temporal_drift
@@ -27,28 +29,37 @@ def _line_width_pt(points: float) -> int:
     return int(round(points * EMU_PER_PT))
 
 
-def _style_axes(chart, subtitle: str) -> None:
-    """Make a chart's axes visible with tick labels, and put the axis meaning in
-    the chart title.
+def _style_axes(chart, title: str, x_title: str, y_title: str) -> None:
+    """Make the axes visible and titled, and pin the plot area so the chart
+    title, the x-axis title and the y-axis title all get their own margin.
 
-    openpyxl leaves both axes at ``axPos='l'`` / ``delete=True`` (so nothing
-    shows), and it writes *axis titles* with no layout, so Excel drops them right
-    on top of the tick numbers — no reliable way to offset them. So: no axis
-    titles; the units go in ``subtitle`` (used as the chart title) instead.
+    openpyxl never reserves space for titles, so Excel stacks the chart title on
+    the data and the axis titles on the tick numbers. A ``manualLayout`` with an
+    explicit inner plot rectangle is the only reliable fix.
     """
-    chart.title = subtitle
-    chart.x_axis.title = None
-    chart.y_axis.title = None
+    chart.title = title
+    chart.title.overlay = False
+    chart.x_axis.title = x_title
+    chart.y_axis.title = y_title
     chart.x_axis.delete = False
     chart.y_axis.delete = False
     chart.x_axis.axPos = "b"
     chart.y_axis.axPos = "l"
     chart.x_axis.majorTickMark = "out"
     chart.y_axis.majorTickMark = "out"
-    chart.x_axis.tickLblPos = "nextTo"
-    chart.y_axis.tickLblPos = "nextTo"
-    if chart.legend is not None:
-        chart.legend.overlay = False     # legend beside the plot, not over the data
+    chart.x_axis.tickLblPos = "low"       # tick labels below the plot, clear of the data
+    # y-axis title reads bottom-to-top so it sits beside (not over) the numbers
+    chart.y_axis.title.tx.rich.bodyPr = RichTextProperties(rot=-5400000, vert="horz")
+
+    has_legend = chart.legend is not None
+    if has_legend:
+        chart.legend.overlay = False
+    # inner plot rectangle: leave room left (y-title + ticks), top (title),
+    # bottom (x ticks + x-title) and right (legend, when present).
+    chart.layout = Layout(manualLayout=ManualLayout(
+        layoutTarget="inner", xMode="edge", yMode="edge",
+        x=0.13, y=0.17, w=0.60 if has_legend else 0.82, h=0.60,
+    ))
 
 
 def _xy_series(ws, x_col: int, y_col: int, n_rows: int, title: str | None = None) -> Series:
@@ -376,7 +387,7 @@ def export_rating_curve_report(
             plot_ws.append(row)
 
         chart = ScatterChart()
-        _style_axes(chart, "Rating curve — discharge Q (m³/s) vs stage above bed (m)")
+        _style_axes(chart, "Rating curve", "Stage above bed (m)", "Discharge Q (m³/s)")
         chart.style = 13
         chart.legend.position = "r"
         chart.height = 10
@@ -452,7 +463,7 @@ def _write_manning_sheet(writer, manning: dict) -> None:
 
     n_rows = ws.max_row
     chart = ScatterChart()
-    _style_axes(chart, f"Fitted vs Manning, Q (m³/s) vs stage (m) — {manning['flag']}")
+    _style_axes(chart, f"Fitted curve vs Manning — {manning['flag']}", "Stage (m)", "Discharge Q (m³/s)")
     chart.style = 13
     chart.legend.position = "r"
     chart.height = 10
@@ -470,28 +481,30 @@ def _write_residuals_over_time_sheet(writer, drift: dict) -> None:
     """'Residuals Over Time' sheet: each gauging's percent difference from the
     curve against its date, plus a chart."""
     resid = drift["residuals"].copy()
-    date_col_name = resid.columns[0]
-    resid[date_col_name] = pd.to_datetime(resid[date_col_name], errors="coerce")
     resid.to_excel(writer, sheet_name="Residuals Over Time", index=False)
     ws = writer.book["Residuals Over Time"]
-    n_rows = ws.max_row
 
     pct_col = list(resid.columns).index("Residual (%)") + 1
-    # A scatter against the (numeric) date axis: Excel then auto-spaces the tick
-    # labels instead of stacking every gauging date, and one series needs no legend.
-    chart = ScatterChart()
-    _style_axes(chart, f"Residuals (observed − modelled, %) over time — drift flag: {drift['flag']}")
+    chart = LineChart()
     chart.legend = None
     chart.style = 13
     chart.height = 9
     chart.width = 20
-    chart.x_axis.number_format = "yyyy"
+    chart.add_data(Reference(ws, min_col=pct_col, max_col=pct_col, min_row=1, max_row=ws.max_row),
+                   titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
+    _style_axes(chart, f"Rating-curve residuals over time — drift flag: {drift['flag']}",
+                "Gauging date", "Observed − modelled (%)")
+    # ~35 gaugings on a text axis: show roughly every Nth date so they don't stack
+    skip = max(1, (ws.max_row - 1) // 8)
+    chart.x_axis.tickLblSkip = skip
+    chart.x_axis.tickMarkSkip = skip
 
-    s = _xy_series(ws, 1, pct_col, n_rows, None)
-    s.marker = Marker(symbol="circle", size=6)
-    s.marker.graphicalProperties.solidFill = "1F77B4"
+    s = chart.series[0]
     s.graphicalProperties.line.noFill = True
-    chart.series.append(s)
+    s.marker.symbol = "circle"
+    s.marker.size = 6
+    s.marker.graphicalProperties.solidFill = "1F77B4"
     ws.add_chart(chart, "J2")
 
 
@@ -512,7 +525,8 @@ def _write_band_sheet(writer, bands: dict) -> None:
     ws = writer.book["Rating Curve Band"]
     n_rows = ws.max_row
     chart = ScatterChart()
-    _style_axes(chart, f"Rating curve + {pct}% bands — Q (m³/s) vs stage above bed (m)")
+    _style_axes(chart, f"Rating curve with {pct}% confidence / prediction bands",
+                "Stage above bed (m)", "Discharge Q (m³/s)")
     chart.style = 13
     chart.legend.position = "r"
     chart.height = 10
