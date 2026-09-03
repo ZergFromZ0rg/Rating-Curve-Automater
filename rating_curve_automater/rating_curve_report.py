@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as _dt
 from pathlib import Path
 from typing import Callable
 
@@ -22,6 +23,26 @@ EMU_PER_PT = 12700
 
 def _line_width_pt(points: float) -> int:
     return int(round(points * EMU_PER_PT))
+
+
+def _tidy_sheet(ws, max_width: int = 60) -> None:
+    """Format date cells as ``yyyy-mm-dd`` and size each column to its content.
+
+    openpyxl leaves every column at the default width, so long values (dates in
+    particular) show as ``######`` until the user widens the column by hand.
+    """
+    for column in ws.iter_cols():
+        longest = 0
+        for cell in column:
+            value = cell.value
+            if value is None:
+                continue
+            if isinstance(value, (_dt.datetime, _dt.date)):
+                cell.number_format = "yyyy-mm-dd"
+                longest = max(longest, 10)
+            else:
+                longest = max(longest, len(str(value)))
+        ws.column_dimensions[column[0].column_letter].width = min(max(longest + 2, 10), max_width)
 
 
 # Friendly column labels used in the exported workbook.
@@ -354,6 +375,9 @@ def export_rating_curve_report(
         manning = fit.get("manning") if fit is not None else None
         if manning and "stage" in manning:
             _write_manning_sheet(writer, manning)
+
+        for ws in workbook.worksheets:
+            _tidy_sheet(ws)
 
     return output
 
