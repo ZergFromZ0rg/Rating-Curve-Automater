@@ -178,6 +178,20 @@ with st.expander("Detected layout" + ("" if pre_ok else "  ⚠️  check this"),
     st.caption("Blank = auto-detect. Set the starred fields if they're wrong.")
     options = [AUTO, *base_report.source_columns]
 
+    for canonical, cands in base_report.mapping.ambiguous.items():
+        picked, *others = cands
+        st.warning(
+            f"**{FIELD_LABELS.get(canonical, canonical)}** matched more than one "
+            f"column — using **{picked}**, not {', '.join(others)}. Change it below "
+            f"if that's wrong.",
+            icon="⚠️",
+        )
+    conv = [f"{FIELD_LABELS.get(k, k)} converted from {u.label}"
+            for k, u in (base_report.units or {}).items()
+            if getattr(u, "detected", False) and getattr(u, "factor", 1.0) != 1.0]
+    if conv:
+        st.caption("Units: " + "; ".join(conv) + ".")
+
     def _map(field_name: str, col) -> str | None:
         guess = base_report.mapping.fields.get(field_name)
         idx = options.index(guess) if guess in base_report.source_columns else 0
@@ -204,11 +218,6 @@ with st.expander("Detected layout" + ("" if pre_ok else "  ⚠️  check this"),
 
     if len(set(overrides.values())) != len(overrides):
         st.warning("The same column is mapped to more than one field.")
-
-    if base_report.needs_review:
-        st.caption("What the loader saw:")
-        st.text(base_report.describe())
-        st.dataframe(_friendly(base_report.sample), width="stretch", hide_index=True)
 
 try:
     result = validate(file_key, path, sheet, header_row, tuple(sorted(overrides.items())))
