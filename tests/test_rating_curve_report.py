@@ -80,3 +80,26 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
         # every declared drawing part is actually present (Excel repairs strip these)
         drawings = {n for n in zf.namelist() if re.fullmatch(r"xl/drawings/drawing\d+\.xml", n)}
         assert len(drawings) == len(charts)
+
+
+def test_report_dates_are_readable_not_hashmarks(tmp_path):
+    # openpyxl leaves default column widths, so a datetime shows as ###### until
+    # widened; the date column must also drop the 00:00:00 time part.
+    import openpyxl
+
+    df = pd.DataFrame({
+        "Date": pd.date_range("2007-03-16", periods=12, freq="120D"),
+        "Stage Above Bed (m)": np.linspace(0.25, 1.2, 12),
+        "Measured Discharge Q (m³/s)": np.linspace(0.05, 0.9, 12),
+    })
+    path = tmp_path / "report.xlsx"
+    export_rating_curve_report(df, path, a=1.18, b=1.72, h0=0.18)
+
+    wb = openpyxl.load_workbook(path)
+    for sheet in ("Original Data", "Observed vs Modeled"):
+        ws = wb[sheet]
+        assert ws["A2"].number_format == "yyyy-mm-dd"
+        assert (ws.column_dimensions["A"].width or 0) >= 10
+        # nothing left at Excel's ~8.43 default across the used columns
+        assert all((ws.column_dimensions[c].width or 0) >= 10
+                   for c in "ABC")
