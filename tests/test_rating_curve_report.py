@@ -94,10 +94,9 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
         assert len(re.findall(r"<(?:c:)?catAx>", plot_xml)) == 0
         assert re.findall(r'axPos val="([^"]+)"/>', plot_xml) == ["b", "l"]
         assert re.findall(r'delete val="([^"]+)"/>', plot_xml) == ["0", "0"]  # axes shown
-        assert "Stage above bed (m)" in plot_xml and "Discharge (m³/s)" in plot_xml
-        # y-axis title reads bottom-to-top so it clears the tick numbers
-        assert 'rot="-5400000"' in plot_xml
-        assert re.findall(r'tickLblPos val="([^"]+)"/>', plot_xml)[0] == "low"
+        # no overlap-prone axis titles: the units live in the chart title instead
+        assert plot_xml.count("<title>") == 1
+        assert "discharge Q (m³/s) vs stage above bed (m)" in plot_xml
 
         # the band chart drops the duplicate "upper bound" legend entries
         if "xl/charts/chart2.xml" in names:
