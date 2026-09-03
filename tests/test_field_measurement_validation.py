@@ -68,6 +68,23 @@ def test_clean_measurements_to_csv_roundtrip(tmp_path):
     assert int(cleaned["is_valid"].sum()) == 2
 
 
+def test_clean_measurements_to_csv_honours_column_overrides(tmp_path):
+    src = tmp_path / "in.xlsx"
+    out = tmp_path / "out.csv"
+    pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=4),
+        "Staff gauge (m)": [0.30, 0.40, 0.50, 0.60],
+        "Surveyed level (m)": [12.30, 12.40, 12.55, 12.70],
+        "Q (m3/s)": [0.05, 0.10, 0.20, 0.30],
+    }).to_excel(src, sheet_name="Measurements", index=False)
+
+    cleaned = clean_measurements_to_csv(
+        src, out, "Measurements", column_overrides={"stage_m": "Surveyed level (m)"}
+    )
+
+    assert cleaned["stage_m"].tolist() == [12.30, 12.40, 12.55, 12.70]
+
+
 def test_repeated_stage_value_is_flagged_as_placeholder():
     df = pd.DataFrame({
         "Date": pd.date_range("2025-01-01", periods=6, freq="MS"),
@@ -79,6 +96,34 @@ def test_repeated_stage_value_is_flagged_as_placeholder():
 
     assert cleaned["is_valid"].tolist() == [True, True, True, False, False, False]
     assert "repeats 3x" in cleaned.loc[3, "validation_notes"]
+
+
+def test_recurring_stage_with_varying_discharge_is_kept():
+    # A common low-flow stage revisited years apart, each visit a genuine (and
+    # different) discharge — not a stuck gauge. Must stay valid.
+    df = pd.DataFrame({
+        "Date": ["2008-02-19", "2008-06-01", "2009-03-10",
+                 "2011-11-19", "2014-07-01", "2016-01-14"],
+        "Stage Above Bed (m)": [0.26, 0.31, 0.19, 0.26, 0.44, 0.26],
+        "Measured Discharge Q (m³/s)": [0.090, 0.11, 0.05, 0.044, 0.02, 0.128],
+    })
+
+    cleaned = clean_and_validate_measurements(df)
+
+    assert cleaned["is_valid"].all()
+
+
+def test_repeated_stage_and_discharge_is_flagged_as_duplicate():
+    df = pd.DataFrame({
+        "Date": ["2020-01-01", "2021-06-01", "2023-09-01", "2019-01-01"],
+        "Stage Above Bed (m)": [0.50, 0.50, 0.50, 0.72],
+        "Measured Discharge Q (m³/s)": [0.20, 0.20, 0.20, 0.55],
+    })
+
+    cleaned = clean_and_validate_measurements(df)
+
+    assert cleaned["is_valid"].tolist() == [False, False, False, True]
+    assert "discharge both repeat" in cleaned.loc[0, "validation_notes"]
 
 
 def test_repeated_stage_is_per_site():

@@ -87,6 +87,8 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
     else:
         rows.append({"Metric": "a", "Value": fit["a"]})
         rows.append({"Metric": "b", "Value": fit["b"]})
+        if fit.get("b_fixed"):
+            rows.append({"Metric": "b source", "Value": "imposed by user (not fitted)"})
 
     if fit.get("uncertainty_source") == "column":
         kind = "weighted least squares" if fit.get("weighted") else "uniform (no re-weighting)"
@@ -246,6 +248,7 @@ def export_rating_curve_report(
                 df, segments=segments_arg,
                 h0=None if fdict.get("h0_estimated", True) else h0,
                 discharge_uncertainty_pct=fdict.get("uncertainty_pct_default", 7.0),
+                fixed_b=b if fdict.get("b_fixed") else None,
             )
         except Exception:  # noqa: BLE001 - a diagnostic must never break the report
             fit_summary["loo"] = None
@@ -462,6 +465,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--segments", default="1")
     parser.add_argument("--method", choices=("ols", "bayesian"), default="ols")
+    parser.add_argument(
+        "--exponent", type=float, default=None, dest="fixed_b", metavar="B",
+        help="Impose the power-law exponent b (e.g. 2.0) and fit only a; single power law only.",
+    )
     parser.add_argument("--cross-section", type=str, default=None,
                         help="Cross-section CSV (offset + elevation) for a Manning check → a 'Manning Check' sheet.")
     parser.add_argument("--slope", type=float, default=None, help="Channel slope (m/m) — required with --cross-section.")
@@ -475,8 +482,12 @@ def main() -> None:
 
     df = pd.read_csv(args.csv)
     segments = args.segments if args.segments.lower() == "auto" else int(args.segments)
-    fit = fit_rating_curve(df, segments=segments, method=args.method,
-                           n_bootstrap=args.bootstrap, random_state=args.seed)
+    try:
+        fit = fit_rating_curve(df, segments=segments, method=args.method,
+                               n_bootstrap=args.bootstrap, random_state=args.seed,
+                               fixed_b=args.fixed_b)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     if args.cross_section:
         from rating_curve_automater.manning import manning_sanity_check, read_cross_section
 

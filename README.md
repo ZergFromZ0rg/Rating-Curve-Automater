@@ -94,6 +94,9 @@ Both the web UI and the CLI are thin views over `rating_curve_automater/workflow
 # Clean/validate any workbook to a CSV (sheet auto-detected unless named)
 rca validate path/to/data.xlsx --output-csv cleaned_measurements.csv
 
+# Force a column when two look alike (e.g. a staff gauge vs a surveyed level)
+rca validate data.xlsx --stage-column "Elev (masl)"
+
 # Clean the bundled 10-year practice dataset
 rca validate --default-dataset
 
@@ -101,6 +104,7 @@ rca validate --default-dataset
 rca fit
 rca fit --segments 2 --h0 0.18
 rca fit --segments auto            # BIC picks the segment count
+rca fit --exponent 2.0 --h0 0.18   # impose b (section control); fit only a
 rca fit --method bayesian --sampler nuts   # ratingcurve / PyMC  (needs the [bayesian] extra)
 rca fit --site "Upper Reach"
 rca fit --uncertainty-pct 5 --bootstrap 2000 --seed 0
@@ -144,8 +148,10 @@ and a **discharge** column; `Quality`, `Field Notes`, `Site` and
   detected and combined. Pass `header_row=` (0-based) to override.
 - **Column names** – matched loosely against a synonym table (`Gauge Height`,
   `Stage`, `WSE`, `GH`, `Q`, `Streamflow`, `Sample Date`, …). Ambiguities
-  (e.g. two stage-like columns) are reported, not guessed silently. Extend the
-  table via `config/column_aliases.yaml` (or `$RATING_CURVE_ALIASES` /
+  (e.g. two stage-like columns) are reported, not guessed silently, and the
+  message names the override to use (`rca validate --stage-column …` /
+  `--discharge-column …`, `column_overrides=`, or the GUI dropdown). Extend the
+  synonym table via `config/column_aliases.yaml` (or `$RATING_CURVE_ALIASES` /
   `~/.rating_curve_automater/column_aliases.yaml`) without touching code.
 - **Units** – read from the header (`(ft)`, `(cfs)`, `(cm)`, `ML/d`, …) and
   converted to SI (metres, m³/s). If no unit is found, SI is assumed and the
@@ -161,8 +167,12 @@ and a **discharge** column; `Quality`, `Field Notes`, `Site` and
   (merged into the date) are all handled.
 - **Multiple sites** – a `Site` column is carried through; fit one site at a
   time (`workflow.run_fit(site=…)`, `--site`, or the GUI picker).
-- **Placeholder stages** – an identical stage value repeated ≥ 3 times per site
-  (a common "gauge lost / out of range" fill) is flagged invalid.
+- **Placeholder stages / stuck gauge** – a stage value repeated ≥ 3 times per
+  site is flagged invalid **only** when it also looks non-physical: the
+  discharge repeats too (a duplicated / placeholder row) or the readings are an
+  unbroken run of consecutive visits (the gauge stuck at one value). A stage
+  that merely recurs across the record with genuinely different discharges (a
+  common low-flow stage) is kept.
 - **Discharge uncertainty** – an optional per-gauging measurement-uncertainty
   column (`Discharge uncertainty (%)`, `Q uncertainty`, …) is detected and
   read as a percentage (`"8%"`, `0.08` and `8` all mean ±8 %). When present and
@@ -171,8 +181,9 @@ and a **discharge** column; `Quality`, `Field Notes`, `Site` and
   plain OLS. Rows with no value fall back to the assumed default
   (`--uncertainty-pct`, `run_fit(discharge_uncertainty_pct=…)`, or the GUI
   field; default 7 %).
-- **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`
-  forces a mapping when detection is wrong.
+- **Overrides** – `load_measurements(path, column_overrides={"stage_m": "col_x"})`,
+  `rca validate --stage-column / --discharge-column / --date-column`, or the GUI
+  dropdown force a mapping when detection is wrong.
 - **Survey block** – free-text rows above the table (T-post / bed elevations,
   titles) are captured on `LoadReport.preheader_notes` for reference.
 
@@ -182,7 +193,8 @@ property.
 
 A row is flagged **invalid** when the date is unparseable, stage is missing or
 ≤ 0, discharge is missing or negative, `Quality` reads bad/poor/unreliable/
-rejected, or its stage value repeats ≥ 3 times for the site. Invalid rows are
+rejected, or its stage value repeats in a way that looks like a placeholder or a
+stuck gauge (see *Placeholder stages / stuck gauge* above). Invalid rows are
 excluded from the fit and the report.
 
 A valid row is additionally flagged with a **warning** when `Quality` reads
@@ -223,6 +235,15 @@ Two orthogonal choices, not a menu of overlapping ones:
   estimate `railed` against a bound (→ a "weakly identified" warning) and the
   residual curvature. Pass an explicit `h0` to override; the Bayesian backend
   infers `h0` from the posterior instead.
+- **Imposed exponent** – `fit_rating_curve(..., fixed_b=2.0)` / `rca fit
+  --exponent 2.0` / the "Impose exponent b" checkbox pins `b` to a value from the
+  control type (≈ 1.5 broad-crested weir, ≈ 2–2.5 natural section control, ≈ 2.5
+  V-notch) and fits **only** `a` (and `h0`, if not supplied). Use it when a
+  narrow-range or scattered low-flow record cannot identify the exponent on its
+  own — a free fit then returns a meaningless `b` and is rejected. Single power
+  law, `method="ols"` only; the fit carries `b_fixed`, the bootstrap reports a
+  CI on `a` but not `b`, and an uncorrelated stage/discharge cloud becomes a
+  "treat as provisional" warning rather than a hard "not a rating curve".
 - **Weighting** – the log–log regression weights each gauging by
   `1 / (fractional discharge uncertainty)`. With no uncertainty column and one
   assumed percentage the weights are uniform (ordinary least squares); a
@@ -351,8 +372,22 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 ## Changelog
 
-**Unreleased** — CI now runs the test suite on Python 3.10–3.13 (plus a pyflakes
-lint) on every push and pull request.
+**Unreleased**
+
+- **Imposed exponent** – `fit_rating_curve(fixed_b=…)`, `rca fit --exponent`,
+  `rca report --exponent` and an "Impose exponent b" checkbox in the app: pin the
+  power-law exponent from the control type and fit only the coefficient, for
+  low-flow / narrow-range records that cannot identify `b` themselves.
+- **Smarter stuck-gauge detection** – a repeated stage value is only rejected
+  when the discharge repeats too, or the readings are consecutive visits; a
+  common low-flow stage revisited over the years with different discharges is no
+  longer dropped.
+- **Actionable rejection message** – when a free fit is rejected as "not a rating
+  curve" the tool now points at the fixes (impose the exponent, or correct the
+  stage column), and ambiguous-column messages name the override flag.
+- `rca validate` gains `--stage-column` / `--discharge-column` / `--date-column`.
+- CI now runs the test suite on Python 3.10–3.13 (plus a pyflakes lint) on every
+  push and pull request.
 
 **v0.2.0** (current release) — replace the deprecated Streamlit
 `use_container_width` with `width="stretch"` (the app extra now needs

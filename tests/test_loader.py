@@ -83,6 +83,21 @@ def test_column_overrides(tmp_path):
     assert canonical[STAGE_M].tolist() == [0.3, 0.4, 0.5, 0.6, 0.7]
 
 
+def test_ambiguous_stage_message_points_at_the_override(tmp_path):
+    path = tmp_path / "twostage.xlsx"
+    _write(path, {"S": pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=5),
+        "Stage (m)": [0.3, 0.4, 0.5, 0.6, 0.7],
+        "Water level (m)": [10.3, 10.4, 10.5, 10.6, 10.7],
+        "Q (m3/s)": [0.05, 0.1, 0.2, 0.3, 0.45],
+    })})
+
+    _, report = load_measurements(path)
+
+    stage_msgs = [m for m in report.messages if m.startswith("stage_m:")]
+    assert stage_msgs and "--stage-column" in stage_msgs[0]
+
+
 def test_csv_input(tmp_path):
     path = tmp_path / "data.csv"
     pd.DataFrame({

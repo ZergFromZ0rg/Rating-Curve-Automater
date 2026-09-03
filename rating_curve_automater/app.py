@@ -69,6 +69,7 @@ def fit_and_report(
     rating_step: float,
     method: str,
     bayesian_sampler: str = "auto",
+    fixed_b: float | None = None,
     section_csv: str | None = None,
     section_slope: float = 0.0,
     section_n: float | None = None,
@@ -81,7 +82,7 @@ def fit_and_report(
     outcome = wf.run_fit(
         h0=h0, segments=segments, site=site,
         discharge_uncertainty_pct=uncertainty_pct, method=method,
-        bayesian_sampler=bayesian_sampler,
+        bayesian_sampler=bayesian_sampler, fixed_b=fixed_b,
     )
     if section_csv and section_slope > 0:
         try:
@@ -254,6 +255,19 @@ segments = f3.radio(
     format_func=lambda n: {1: "1 — single", 2: "2 — piecewise", 3: "3 — piecewise", "auto": "auto (BIC)"}[n],
     help="Number of joined power-law segments, or 'auto' to let BIC pick 1–4.",
 )
+fixed_b = None
+if method == "ols":
+    fix_b = f3.checkbox(
+        "Impose exponent b",
+        value=False,
+        help="Pin the power-law exponent (e.g. 2 for a section control) and fit only a. "
+             "Use when a narrow or scattered low-flow record can't identify b. Single-segment, least-squares only.",
+    )
+    if fix_b:
+        fixed_b = f3.number_input("b", min_value=0.1, max_value=5.0, value=2.0, step=0.1, format="%.2f")
+        if segments != 1:
+            f3.caption("↳ using a single segment (imposed b)")
+            segments = 1
 threshold = f4.slider("Uncertainty threshold", 0.05, 1.0, DEFAULT_UNCERTAINTY_THRESHOLD, 0.05)
 uncertainty_pct = f5.number_input(
     "Discharge uncertainty (±%)",
@@ -299,7 +313,7 @@ try:
         outcome, fit_df, report_bytes, rating_table, rating_csv = fit_and_report(
             file_key, path, sheet, header_row, tuple(sorted(overrides.items())),
             h0, segments, site, threshold, uncertainty_pct, rating_step, method,
-            bayesian_sampler,
+            bayesian_sampler, fixed_b,
             section_csv, float(section_slope or 0.0),
             (section_n or None), float(section_offset or 0.0),
         )
@@ -324,7 +338,7 @@ b_delta = None
 if bands and bands.get("b_ci"):
     b_delta = f"{int(round(bands['level'] * 100))}% CI [{bands['b_ci'][0]:.3f}, {bands['b_ci'][1]:.3f}]"
 k1.metric("a", f"{p['a']:.4f}")
-k2.metric("b", f"{p['b']:.4f}", b_delta, delta_color="off")
+k2.metric("b", f"{p['b']:.4f}", "imposed" if p.get("b_fixed") else b_delta, delta_color="off")
 h0_note = "fixed"
 if p["h0_estimated"]:
     hd = p.get("h0_diagnostics") or {}

@@ -54,7 +54,7 @@ def _refit_fixed(
     w = None if weights_m is None else weights_m[usable]
 
     if not fit.get("is_segmented"):
-        r = _loglog_fit(s, q, h0, w)
+        r = _loglog_fit(s, q, h0, w, fixed_b=fit["b"] if fit.get("b_fixed") else None)
         if r is None:
             return None
         return {"is_segmented": False, "a": r["a"], "b": r["b"], "h0": h0}
@@ -184,7 +184,7 @@ def bootstrap_rating_curve(
         "pi_lower": pi_lower,
         "pi_upper": pi_upper,
         "a_ci": _pair(a_samples),
-        "b_ci": _pair(b_samples),
+        "b_ci": None if fit.get("b_fixed") else _pair(b_samples),
         "h0_ci": _pair(h0_samples) if reestimate_h0 else None,
         "h0_reestimated": bool(reestimate_h0),
         "ci_halfwidth_pct_at_median": ci_halfwidth_pct,
