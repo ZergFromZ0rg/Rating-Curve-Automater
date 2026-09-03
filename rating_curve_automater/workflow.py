@@ -101,6 +101,8 @@ class FitOutcome:
             )
         else:
             head = f"Q = {p['a']:.6f} * (H - {p['h0']:.3f})^{p['b']:.6f}"
+            if p.get("b_fixed"):
+                head += "  (b imposed)"
         prefix = f"[{self.site}] " if self.site else ""
         estimator = "Bayesian" if p.get("method") == "bayesian" else "least squares"
         line = f"{prefix}{head}  | {estimator} | R² = {p['r_squared']:.4f} | h0 {source} | {p['n_points']} points"
@@ -187,6 +189,7 @@ class RatingCurveWorkflow:
         random_state: int | None = 0,
         method: str = "ols",
         bayesian_sampler: str = "auto",
+        fixed_b: float | None = None,
     ) -> FitOutcome:
         if self.cleaned_df is None:
             raise RuntimeError("Validate a dataset before fitting.")
@@ -208,6 +211,7 @@ class RatingCurveWorkflow:
             random_state=random_state,
             method=method,
             bayesian_sampler=bayesian_sampler,
+            fixed_b=fixed_b,
         )
         self.fit_df = fit_df
         self.fit_params = params
