@@ -68,8 +68,14 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
     path = tmp_path / "report.xlsx"
     export_rating_curve_report(df, path, a=fit["a"], b=fit["b"], h0=fit["h0"], fit=fit)
 
+    # openpyxl serialises self-closing tags with or without a space before "/>"
+    # depending on the XML backend (lxml vs ElementTree) — normalise before matching.
+    def norm(xml: str) -> str:
+        return re.sub(r"\s+/>", "/>", xml)
+
     with zipfile.ZipFile(path) as zf:
-        charts = [n for n in zf.namelist() if re.fullmatch(r"xl/charts/chart\d+\.xml", n)]
+        names = set(zf.namelist())
+        charts = sorted(n for n in names if re.fullmatch(r"xl/charts/chart\d+\.xml", n))
         assert charts  # the Plot + band + residual charts
         seen_any_width = False
         for name in charts:
@@ -78,31 +84,32 @@ def test_report_chart_line_widths_are_integer_emu(tmp_path):
             assert all(w.lstrip("-").isdigit() for w in widths), (name, widths)
         assert seen_any_width  # at least the styled line charts carry a width
         # every declared drawing part is actually present (Excel repairs strip these)
-        drawings = {n for n in zf.namelist() if re.fullmatch(r"xl/drawings/drawing\d+\.xml", n)}
+        drawings = {n for n in names if re.fullmatch(r"xl/drawings/drawing\d+\.xml", n)}
         assert len(drawings) == len(charts)
 
         # the rating-curve chart is an XY scatter with visible, titled, bottom+left axes
-        plot_xml = zf.read("xl/charts/chart1.xml").decode()
+        plot_xml = norm(zf.read("xl/charts/chart1.xml").decode())
         assert "scatterChart>" in plot_xml
         assert len(re.findall(r"<(?:c:)?valAx>", plot_xml)) == 2   # both axes are value axes
         assert len(re.findall(r"<(?:c:)?catAx>", plot_xml)) == 0
-        assert re.findall(r'axPos val="([^"]+)"', plot_xml) == ["b", "l"]
-        assert re.findall(r'delete val="([^"]+)"', plot_xml) == ["0", "0"]  # axes shown
+        assert re.findall(r'axPos val="([^"]+)"/>', plot_xml) == ["b", "l"]
+        assert re.findall(r'delete val="([^"]+)"/>', plot_xml) == ["0", "0"]  # axes shown
         assert "Stage above bed (m)" in plot_xml and "Discharge (m³/s)" in plot_xml
         # y-axis title reads bottom-to-top so it clears the tick numbers
         assert 'rot="-5400000"' in plot_xml
-        assert re.findall(r'tickLblPos val="([^"]+)"', plot_xml)[0] == "low"
+        assert re.findall(r'tickLblPos val="([^"]+)"/>', plot_xml)[0] == "low"
 
         # the band chart drops the duplicate "upper bound" legend entries
-        if "xl/charts/chart2.xml" in {n for n in zf.namelist()}:
-            band_xml = zf.read("xl/charts/chart2.xml").decode()
-            deleted = re.findall(r"<legendEntry><idx val=\"\d+\"/><delete val=\"1\"/>", band_xml)
-            assert len(deleted) == 2
+        if "xl/charts/chart2.xml" in names:
+            band_xml = norm(zf.read("xl/charts/chart2.xml").decode())
+            legend = re.search(r"<(?:c:)?legend>.*?</(?:c:)?legend>", band_xml, re.S).group()
+            assert legend.count('<delete val="1"/>') == 2
 
         # residuals-over-time: a legend-free scatter against real dates
-        if "xl/charts/chart3.xml" in {n for n in zf.namelist()}:
+        if "xl/charts/chart3.xml" in names:
             res_xml = zf.read("xl/charts/chart3.xml").decode()
-            assert "scatterChart>" in res_xml and "<legend>" not in res_xml
+            assert "scatterChart>" in res_xml
+            assert re.search(r"<(?:c:)?legend>", res_xml) is None
 
 
 def test_report_dates_are_readable_not_hashmarks(tmp_path):
