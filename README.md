@@ -383,10 +383,19 @@ request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
 **Unreleased**
 
+- **Excel report charts** – the rating-curve and band charts are now XY
+  **scatter** charts with proper numeric, titled, bottom/left axes (openpyxl
+  defaulted both axes to the left and hidden, so they rendered without labels).
+  Gaugings plot as points against a smooth 120-point curve line.
 - **Fixed a corrupt Excel report** – the "Rating Curve Band" chart was written
   with a fractional line width, which the OOXML schema forbids; Excel stripped
   the chart on open ("Removed Part: /xl/drawings/drawing2.xml"). Chart line
   widths are now integer EMU.
+- **Readable dates** in the report – date columns are formatted `yyyy-mm-dd` and
+  every column is sized to its content (no more `######`).
+- **Bayesian pins** – `[bayesian]` extra bumped to `ratingcurve>=1.1`,
+  `pymc>=5.28,<6` (ratingcurve 1.1 requires pymc ≥ 5.28.1); tested against
+  ratingcurve 1.1.0 / pymc 5.28.
 - **Streamlined web UI** – rebuilt as a single top-to-bottom column with **no
   sidebar**: upload → a *Detected layout* panel that opens itself only when
   detection is unsure (three required column dropdowns, optional ones behind a

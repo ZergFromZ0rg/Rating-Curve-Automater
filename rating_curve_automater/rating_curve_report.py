@@ -6,7 +6,8 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
-from openpyxl.chart import LineChart, Reference
+from openpyxl.chart import LineChart, Reference, ScatterChart, Series
+from openpyxl.chart.marker import Marker
 from openpyxl.styles import PatternFill
 
 from rating_curve_automater.rating_curve_drift import assess_temporal_drift
@@ -23,6 +24,30 @@ EMU_PER_PT = 12700
 
 def _line_width_pt(points: float) -> int:
     return int(round(points * EMU_PER_PT))
+
+
+def _style_axes(chart, x_title: str, y_title: str) -> None:
+    """Give a chart proper bottom/left axes with titles and tick labels.
+
+    openpyxl leaves both axes at ``axPos='l'`` and ``delete=True`` by default, so
+    a freshly built chart opens in Excel with no visible axes or labels.
+    """
+    chart.x_axis.title = x_title
+    chart.y_axis.title = y_title
+    chart.x_axis.delete = False
+    chart.y_axis.delete = False
+    chart.x_axis.axPos = "b"
+    chart.y_axis.axPos = "l"
+    chart.x_axis.majorTickMark = "out"
+    chart.y_axis.majorTickMark = "out"
+
+
+def _xy_series(ws, x_col: int, y_col: int, n_rows: int, title: str | None = None) -> Series:
+    """A scatter Series taking X from ``x_col`` and Y from ``y_col`` (data rows 2..n_rows)."""
+    xref = Reference(ws, min_col=x_col, min_row=2, max_row=n_rows)
+    yref = Reference(ws, min_col=y_col, min_row=2, max_row=n_rows)
+    s = Series(yref, xref, title=title)
+    return s
 
 
 def _tidy_sheet(ws, max_width: int = 60) -> None:
@@ -313,48 +338,62 @@ def export_rating_curve_report(
 
         workbook = writer.book
         plot_ws = workbook.create_sheet("Plot")
-        plot_ws.append(["Stage Above Bed (m)", "Observed Discharge Q (m³/s)", "Modeled Discharge Q (m³/s)", "Uncertain Observed Discharge Q (m³/s)"])
-        for row in plot_data.values.tolist():
+
+        # Observed gaugings, sorted by stage; a dense stage grid for the curve.
+        obs = plot_data.sort_values("Stage Above Bed (m)")
+        stage_obs = obs["Stage Above Bed (m)"].to_numpy(dtype=float)
+        lo, hi = float(np.nanmin(stage_obs)), float(np.nanmax(stage_obs))
+        grid = np.linspace(lo, hi, 120)
+        if predict is not None:
+            grid_q = np.asarray(predict(grid), dtype=float)
+        else:
+            grid_q = a * np.power(np.maximum(grid - h0, 1e-9), b)
+
+        plot_ws.append([
+            "Stage (m)", "Observed Q (m³/s)", "Uncertain Q (m³/s)",
+            None, "Curve stage (m)", "Curve Q (m³/s)",
+        ])
+        n = max(len(obs), len(grid))
+        for i in range(n):
+            row = [None] * 6
+            if i < len(obs):
+                row[0] = float(obs.iloc[i]["Stage Above Bed (m)"])
+                row[1] = float(obs.iloc[i]["Observed Discharge Q (m³/s)"])
+                uq = obs.iloc[i]["Uncertain Observed Discharge Q (m³/s)"]
+                row[2] = None if pd.isna(uq) else float(uq)
+            if i < len(grid):
+                row[4] = float(grid[i])
+                row[5] = float(grid_q[i])
             plot_ws.append(row)
 
-        chart = LineChart()
+        chart = ScatterChart()
         chart.title = "Rating Curve"
-        chart.x_axis.title = "Stage Above Bed (m)"
-        chart.y_axis.title = "Discharge (m³/s)"
+        _style_axes(chart, "Stage above bed (m)", "Discharge (m³/s)")
         chart.style = 13
         chart.legend.position = "r"
-        chart.height = 9
-        chart.width = 18
+        chart.height = 10
+        chart.width = 20
         chart.y_axis.scaling.min = 0
 
-        observed_data = Reference(plot_ws, min_col=2, max_col=2, min_row=1, max_row=plot_ws.max_row)
-        modeled_data = Reference(plot_ws, min_col=3, max_col=3, min_row=1, max_row=plot_ws.max_row)
-        uncertain_data = Reference(plot_ws, min_col=4, max_col=4, min_row=1, max_row=plot_ws.max_row)
-        categories = Reference(plot_ws, min_col=1, max_col=1, min_row=2, max_row=plot_ws.max_row)
+        curve = _xy_series(plot_ws, 5, 6, grid.size + 1, "Rating curve")
+        curve.marker = Marker(symbol="none")
+        curve.graphicalProperties.line.solidFill = "2CA02C"
+        curve.graphicalProperties.line.width = _line_width_pt(2.25)
+        chart.series.append(curve)
 
-        chart.add_data(observed_data, titles_from_data=True)
-        chart.add_data(modeled_data, titles_from_data=True)
-        chart.add_data(uncertain_data, titles_from_data=True)
-        chart.set_categories(categories)
+        observed = _xy_series(plot_ws, 1, 2, len(obs) + 1, "Gaugings")
+        observed.marker = Marker(symbol="circle", size=7)
+        observed.marker.graphicalProperties.solidFill = "1F77B4"
+        observed.graphicalProperties.line.noFill = True
+        chart.series.append(observed)
 
-        chart.series[0].graphicalProperties.line.solidFill = "1F77B4"
-        chart.series[0].graphicalProperties.line.width = _line_width_pt(2)
-        chart.series[0].marker.size = 6
-        chart.series[0].marker.symbol = "circle"
-        chart.series[0].marker.graphicalProperties.solidFill = "1F77B4"
+        uncertain = _xy_series(plot_ws, 1, 3, len(obs) + 1, "Uncertain gauging")
+        uncertain.marker = Marker(symbol="diamond", size=9)
+        uncertain.marker.graphicalProperties.solidFill = "D62728"
+        uncertain.graphicalProperties.line.noFill = True
+        chart.series.append(uncertain)
 
-        chart.series[1].graphicalProperties.line.solidFill = "2CA02C"
-        chart.series[1].graphicalProperties.line.width = _line_width_pt(2)
-        chart.series[1].marker.size = 4
-        chart.series[1].marker.symbol = "triangle"
-        chart.series[1].marker.graphicalProperties.solidFill = "2CA02C"
-
-        chart.series[2].graphicalProperties.line.noFill = True
-        chart.series[2].marker.size = 7
-        chart.series[2].marker.symbol = "diamond"
-        chart.series[2].marker.graphicalProperties.solidFill = "D62728"
-
-        plot_ws.add_chart(chart, "F2")
+        plot_ws.add_chart(chart, "H2")
 
         observed_ws = workbook["Observed vs Modeled"]
         flagged_fill = PatternFill(fill_type="solid", fgColor="FFC000")
@@ -403,17 +442,20 @@ def _write_manning_sheet(writer, manning: dict) -> None:
     ws["G5"] = "message"
     ws["H5"] = manning["message"]
 
-    chart = LineChart()
+    n_rows = ws.max_row
+    chart = ScatterChart()
     chart.title = f"Fitted curve vs cross-section (Manning) — {manning['flag']}"
-    chart.x_axis.title = "Stage (m)"
-    chart.y_axis.title = "Discharge (m³/s)"
+    _style_axes(chart, "Stage (m)", "Discharge (m³/s)")
     chart.style = 13
-    chart.height = 9
-    chart.width = 18
-    for col in (2, 3):
-        chart.add_data(Reference(ws, min_col=col, max_col=col, min_row=1, max_row=ws.max_row),
-                       titles_from_data=True)
-    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
+    chart.legend.position = "r"
+    chart.height = 10
+    chart.width = 20
+    for col, title, colour in ((2, "Fitted curve", "D62728"), (3, "Manning (cross-section)", "1F77B4")):
+        s = _xy_series(ws, 1, col, n_rows, title)
+        s.marker = Marker(symbol="none")
+        s.graphicalProperties.line.solidFill = colour
+        s.graphicalProperties.line.width = _line_width_pt(2)
+        chart.series.append(s)
     ws.add_chart(chart, "G8")
 
 
@@ -427,11 +469,10 @@ def _write_residuals_over_time_sheet(writer, drift: dict) -> None:
     pct_col = list(resid.columns).index("Residual (%)") + 1
     chart = LineChart()
     chart.title = f"Rating-curve residuals over time — drift flag: {drift['flag']}"
-    chart.x_axis.title = "Gauging date"
-    chart.y_axis.title = "Observed − modelled (%)"
+    _style_axes(chart, "Gauging date", "Observed − modelled (%)")
     chart.style = 13
     chart.height = 9
-    chart.width = 18
+    chart.width = 20
     chart.add_data(Reference(ws, min_col=pct_col, max_col=pct_col, min_row=1, max_row=ws.max_row),
                    titles_from_data=True)
     chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
@@ -458,26 +499,29 @@ def _write_band_sheet(writer, bands: dict) -> None:
     band_df.to_excel(writer, sheet_name="Rating Curve Band", index=False)
 
     ws = writer.book["Rating Curve Band"]
-    chart = LineChart()
+    n_rows = ws.max_row
+    chart = ScatterChart()
     chart.title = f"Rating curve with {pct}% confidence / prediction bands"
-    chart.x_axis.title = "Stage Above Bed (m)"
-    chart.y_axis.title = "Discharge (m³/s)"
+    _style_axes(chart, "Stage above bed (m)", "Discharge (m³/s)")
     chart.style = 13
     chart.legend.position = "r"
-    chart.height = 9
-    chart.width = 18
+    chart.height = 10
+    chart.width = 20
     chart.y_axis.scaling.min = 0
 
-    for col in range(2, 7):
-        chart.add_data(Reference(ws, min_col=col, max_col=col, min_row=1, max_row=ws.max_row), titles_from_data=True)
-    chart.set_categories(Reference(ws, min_col=1, max_col=1, min_row=2, max_row=ws.max_row))
-
-    chart.series[0].graphicalProperties.line.solidFill = "D62728"
-    chart.series[0].graphicalProperties.line.width = _line_width_pt(2.5)
-    for i in (1, 2):
-        chart.series[i].graphicalProperties.line.solidFill = "1F77B4"
-    for i in (3, 4):
-        chart.series[i].graphicalProperties.line.solidFill = "9467BD"
+    specs = [
+        (2, "Fitted curve", "D62728", 2.5),
+        (3, f"{pct}% confidence", "1F77B4", 1.0),
+        (4, f"{pct}% confidence", "1F77B4", 1.0),
+        (5, f"{pct}% prediction", "9467BD", 1.0),
+        (6, f"{pct}% prediction", "9467BD", 1.0),
+    ]
+    for col, title, colour, pt in specs:
+        s = _xy_series(ws, 1, col, n_rows, title)
+        s.marker = Marker(symbol="none")
+        s.graphicalProperties.line.solidFill = colour
+        s.graphicalProperties.line.width = _line_width_pt(pt)
+        chart.series.append(s)
     ws.add_chart(chart, "H2")
 
 

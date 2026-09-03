@@ -38,10 +38,10 @@ Issues = "https://github.com/ZergFromZ0rg/Rating-Curve-Automater/issues"
 
 [project.optional-dependencies]
 app = ["streamlit>=1.49"]   # width="stretch" API (use_container_width deprecated)
-# Bayesian backend (thodson-usgs ratingcurve). PyMC is pinned < 6 because
-# ratingcurve 1.0.x still uses APIs (pm.callbacks / pm.ADVI helpers) removed in
-# PyMC 6.
-bayesian = ["ratingcurve>=1.0", "pymc>=5.21,<6"]
+# Bayesian backend (thodson-usgs ratingcurve). ratingcurve 1.1 needs
+# pymc >= 5.28.1; PyMC stays capped < 6 as a forward guard (ratingcurve does not
+# yet declare PyMC 6 support). Tested against ratingcurve 1.1.0 / pymc 5.28.
+bayesian = ["ratingcurve>=1.1", "pymc>=5.28,<6"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]
