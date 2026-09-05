@@ -243,7 +243,13 @@ Two orthogonal choices, not a menu of overlapping ones:
   against `a` and `b`. `fit["h0_diagnostics"]` records the `method`, whether the
   estimate `railed` against a bound (→ a "weakly identified" warning) and the
   residual curvature. Pass an explicit `h0` to override; the Bayesian backend
-  infers `h0` from the posterior instead.
+  infers `h0` from the posterior instead. With `segments="auto"` and an
+  estimated `h0`, the single-power-law baseline the breakpoints have to beat is
+  re-profiled for `h0` within ±0.10 m (`piecewise.H0_REFINE_WINDOW_M`): a knot
+  adds the same freedom, so without this a small `h0` error bends the log–log
+  line and the search "fixes" the bend with a spurious segment. A one-power-law
+  channel then keeps 1 segment (and reports the refined `h0`); a genuine
+  compound channel still splits.
 - **Imposed exponent** – `fit_rating_curve(..., fixed_b=2.0)` / `rca fit
   --exponent 2.0` / the "Impose the exponent b" checkbox pins `b` to a value from the
   control type (≈ 1.5 broad-crested weir, ≈ 2–2.5 natural section control, ≈ 2.5
@@ -369,6 +375,7 @@ Two orthogonal choices, not a menu of overlapping ones:
 | `rating_curve_automater/rating_curve_plot.py` | Matplotlib rating-curve figure (GUI preview) |
 | `rating_curve_automater/data/` | Bundled synthetic practice dataset (`rca validate --default-dataset`) |
 | `tests/` | pytest suite |
+| `benchmarks/` | Seeded Monte-Carlo validation study (`simulation_study.py`) + its results |
 
 ## Tests
 
@@ -379,9 +386,56 @@ python3 -m pytest -q
 CI runs this on Python 3.10–3.13 (plus a pyflakes lint) on every push and pull
 request; the optional `[bayesian]` tests self-skip unless PyMC is installed.
 
+## Validation
+
+Beyond the unit tests, the estimator is checked against a seeded Monte-Carlo
+study — `benchmarks/simulation_study.py` (`--quick` for a ~1-minute run,
+`benchmarks/README.md` for the design). It builds stage–discharge curves with
+**known** parameters, adds unbiased multiplicative noise, fits them through the
+same `fit_rating_curve` path a user runs, and scores parameter recovery and
+interval calibration. Latest full run
+(`benchmarks/results/simulation_study.json`):
+
+- **Single power law** (n = 25, ~8 % noise, 400 trials) — exponent `b`:
+  RMSE ≈ 10 %, bias ≈ −2 %; `h0`: RMSE ≈ 0.043 m, bias ≈ 0.6 cm. The 95 %
+  bootstrap CIs on `a`, `b`, `h0` cover the truth ~99 % of the time (slightly
+  conservative); the 95 % confidence band has 96 % pointwise coverage at a
+  median half-width of ±11 %.
+- **Segment count** (`segments="auto"`, BIC; ~7 % noise, n = 60–75) — one true
+  control: keeps 1 segment **98.8 %** of trials whether `h0` is supplied or
+  estimated (up from ~52 % with an estimated `h0` before the v0.3.1 refinement).
+  Two true controls: exact count 88 % (estimated `h0`) / 96 % (supplied), with
+  breakpoints located to **~1 % of the gauged stage range**. Three controls is
+  hard — at least 2 segments every time, exact count ~23 %.
+- **Temporal drift / rating shift** (dated gaugings, 5-year span) — **5 %**
+  false-positive rate at no trend; gradual drift detected in **88 %** of trials
+  at ≥ 4 %/yr; an abrupt +15 % shift flagged **94 %** of the time with the
+  changepoint dated to a median 55 days (p90 238).
+- **Bundled 10-year dataset** (120 gaugings; `auto` selects 1 segment) —
+  in-sample R² **0.986**, leave-one-out RMSPE **9.9 %** (bias +0.4 %), and an
+  earliest-70 % → latest-30 % temporal hold-out RMSPE of **8.8 %**.
+
+These are estimator-quality figures on synthetic and bundled data, not a
+comparison against other software.
+
 ## Changelog
 
-**v0.3.0** (current release)
+**v0.3.1** (current release)
+
+- **`segments="auto"` no longer over-segments a single-control channel when
+  `h0` is estimated.** A few-centimetre error in the estimated stage of zero
+  flow bends the log–log line, and the forward knot search was "correcting" the
+  bend with a spurious breakpoint that BIC then accepted. The single-power-law
+  baseline is now re-profiled for `h0` (within ±0.10 m,
+  `piecewise.H0_REFINE_WINDOW_M`) before the knots are scored, so it has the
+  same freedom a knot implicitly adds. In a Monte-Carlo study (single true
+  power law, ~7% noise, n=60) the false-split rate drops from ~48% to ~1%,
+  matching the known-`h0` case; two- and three-control recovery and breakpoint
+  accuracy are unchanged. A single-segment `auto` fit with an estimated `h0`
+  now reports the refined value. Forced `segments=N` and a user-supplied `h0`
+  are unaffected.
+
+**v0.3.0**
 
 - **Imposed exponent** – `fit_rating_curve(fixed_b=…)`, `rca fit --exponent`,
   `rca report --exponent`, `run_fit(fixed_b=…)` and an "Impose the exponent b"
