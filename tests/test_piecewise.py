@@ -61,6 +61,32 @@ def test_auto_finds_the_kink_when_it_is_real():
     assert 0.55 < model["breakpoints"][0] < 0.9
 
 
+def test_refine_h0_stops_a_small_h0_error_from_forcing_a_spurious_knot():
+    # One true power law (b = 1.8, h0 = 0.15) with ~7% noise. Handed an h0 that
+    # is off by +0.03, the plain auto search bends the log-log line and "fixes"
+    # it with a knot; refine_h0 lets the single power law recover h0 instead.
+    rng = np.random.default_rng(11)
+    h = np.sort(rng.uniform(0.15 + 0.05, 3.0, 60))
+    q = 2.0 * (h - 0.15) ** 1.8 * rng.lognormal(-0.5 * 0.07**2, 0.07, 60)
+
+    naive = fit_piecewise_power_law(h, q, 0.18, n_segments=None)
+    refined = fit_piecewise_power_law(h, q, 0.18, n_segments=None, refine_h0=True)
+
+    assert naive["is_segmented"] is True  # the bug this guards against
+    assert refined["is_segmented"] is False
+    assert refined["h0"] == pytest.approx(0.15, abs=0.03)
+    assert refined["b"] == pytest.approx(1.8, rel=0.1)
+
+
+def test_refine_h0_leaves_a_genuine_two_segment_fit_alone():
+    h, q = _two_control(bp=0.7, b1=1.2, b2=2.6, noise=0.05)
+    plain = fit_piecewise_power_law(h, q, 0.15, n_segments=None)
+    refined = fit_piecewise_power_law(h, q, 0.15, n_segments=None, refine_h0=True)
+    assert refined["is_segmented"] is True
+    assert refined["n_segments"] == plain["n_segments"] == 2
+    assert refined["breakpoints"] == pytest.approx(plain["breakpoints"])
+
+
 def test_forcing_more_segments_than_the_data_supports_raises():
     h, q = _two_control(n=12)
     with pytest.raises(ValueError):

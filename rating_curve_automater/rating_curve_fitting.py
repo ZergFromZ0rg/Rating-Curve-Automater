@@ -492,9 +492,14 @@ def _fit_piecewise(
         model = fit_piecewise_power_law(
             stage, discharge, float(h0), weights,
             n_segments=n_segments, max_segments=max_segments, criterion=criterion,
+            refine_h0=h0_estimated,
         )
     except np.linalg.LinAlgError as exc:  # pragma: no cover - degenerate design
         raise ValueError(f"Could not fit a piecewise rating curve: {exc}") from exc
+
+    # ``auto`` may re-profile h0 for a single-power-law result (see
+    # ``piecewise.H0_REFINE_WINDOW_M``); a segmented result keeps the supplied h0.
+    h0 = float(model.get("h0", h0))
 
     order = np.argsort(stage)
     s_sorted, q_sorted = stage[order], discharge[order]
@@ -599,7 +604,11 @@ def fit_rating_curve(
       that many segments; breakpoint stages are chosen by forward selection.
     * ``"auto"`` – try 1..``max_segments`` and keep the count that minimises
       ``segment_criterion`` (``"bic"`` or ``"aic"``), so the curve only gains a
-      segment it can justify.
+      segment it can justify. When ``h0`` was estimated (not supplied), it is
+      re-profiled for the single-power-law baseline the knots must beat, so a
+      small point-of-zero-flow error cannot masquerade as a second control (see
+      :data:`rating_curve_automater.piecewise.H0_REFINE_WINDOW_M`); the reported
+      ``h0`` then comes from that refinement when the fit stays single.
 
     ``h0`` is shared across segments. A segmented fit carries ``is_segmented``,
     ``breakpoints`` (list; ``breakpoint`` = the first, for back-compat), a
