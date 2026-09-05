@@ -28,6 +28,18 @@ MIN_SEGMENT_FRACTION = 0.10
 DEFAULT_MAX_SEGMENTS = 4
 _TINY = 1e-9
 
+#: When ``fit_piecewise_power_law`` picks the segment count *and* the caller
+#: estimated ``h0`` from the data (``refine_h0=True``), the single-power-law
+#: baseline is re-profiled within +/- this window (metres) of the incoming
+#: estimate to the ``h0`` that minimises its log-space RSS. This gives one power
+#: law the same freedom a knot implicitly grants: a small ``h0`` error bends
+#: ``ln Q`` vs ``ln(H - h0)``, and without this the forward search "fixes" the
+#: bend with a spurious knot that BIC then accepts. A single power law's log-RSS
+#: has a sharp interior minimum at the true ``h0`` when the data really is one
+#: power law and collapses toward the datum when it is not, so the search is
+#: bounded and a rail there simply lets a genuine knot win.
+H0_REFINE_WINDOW_M = 0.10
+
 
 def segment_r_squared(observed: np.ndarray, predicted: np.ndarray) -> float:
     """Ordinary R² of a segment's gaugings, or ``nan`` when it has too few
@@ -119,6 +131,37 @@ def _valid_partition(sorted_stage: np.ndarray, knot_stages: list[float], min_poi
     return True
 
 
+def _best_single_h0(
+    stage_sorted: np.ndarray,
+    discharge_sorted: np.ndarray,
+    weights_sorted: np.ndarray | None,
+    h0_0: float,
+    lo_b: float,
+    hi_b: float,
+) -> tuple[float, np.ndarray, float]:
+    """``h0`` in ``[lo_b, hi_b]`` minimising the weighted single-power-law
+    log-space RSS, with its refitted coefficients and that RSS.
+
+    Used only for the ``auto`` segment-count baseline (see
+    :data:`H0_REFINE_WINDOW_M`). ``stage_sorted`` is already ascending and masked
+    to ``stage > h0`` at the incoming estimate; ``hi_b`` is kept below the lowest
+    stage by the caller so every candidate keeps ``ln(H - h0)`` finite.
+    """
+    y = np.log(discharge_sorted)
+    best_h0, best_coef, best_rss = float(h0_0), None, math.inf
+    for cand in np.linspace(lo_b, hi_b, 65):
+        u = np.log(stage_sorted - cand)
+        coef = fit_spline_coef(u, y, weights_sorted, [])
+        rss = _weighted_rss_log(_design(u, []), y, weights_sorted, coef)
+        if rss < best_rss:
+            best_h0, best_coef, best_rss = float(cand), coef, rss
+    if best_coef is None:  # pragma: no cover - lo_b == hi_b
+        u = np.log(stage_sorted - h0_0)
+        best_coef = fit_spline_coef(u, y, weights_sorted, [])
+        best_rss = _weighted_rss_log(_design(u, []), y, weights_sorted, best_coef)
+    return best_h0, best_coef, best_rss
+
+
 def fit_piecewise_power_law(
     stage: np.ndarray,
     discharge: np.ndarray,
@@ -128,6 +171,7 @@ def fit_piecewise_power_law(
     n_segments: int | None = None,
     max_segments: int = DEFAULT_MAX_SEGMENTS,
     criterion: str = "bic",
+    refine_h0: bool = False,
 ) -> dict:
     """Fit a continuous piecewise power law.
 
@@ -135,7 +179,12 @@ def fit_piecewise_power_law(
     ("bic" or "aic") choose it up to ``max_segments`` by forward knot selection.
     Returns a dict with ``spline`` (for :func:`evaluate_spline`), ``segments``
     (per-segment ``a`` / ``b`` / range / point count), ``breakpoints`` (stage
-    values), ``n_segments`` and log-space ``rss`` / ``criterion``.
+    values), ``n_segments``, log-space ``rss`` / ``criterion`` and the ``h0``
+    the returned model uses.
+
+    ``refine_h0`` (auto count only) re-profiles ``h0`` for the single-power-law
+    baseline that knots must beat — see :data:`H0_REFINE_WINDOW_M`. Pass it when
+    ``h0`` was estimated from the data, not supplied.
     """
     if criterion not in ("bic", "aic"):
         raise ValueError("criterion must be 'bic' or 'aic'.")
@@ -173,7 +222,22 @@ def fit_piecewise_power_law(
     knot_stages: list[float] = []
     coef0, rss0 = evaluate(knot_stages)
     best = {"knot_stages": [], "coef": coef0, "rss": rss0,
-            "crit": _criterion(rss0, n, 1, criterion)}
+            "crit": _criterion(rss0, n, 1, criterion), "h0": float(h0)}
+
+    # Give the single-power-law baseline the same h0 freedom a knot implicitly
+    # grants, so the forward search does not "fix" a small h0 error with a
+    # spurious knot. Only when h0 was estimated and the count is not forced.
+    if refine_h0 and not forced:
+        lo_b = max(_TINY, h0 - H0_REFINE_WINDOW_M)
+        hi_b = min(float(stage_m[0]) - _TINY, h0 + H0_REFINE_WINDOW_M)
+        if hi_b > lo_b:
+            h0_ref, coef_ref, rss_ref = _best_single_h0(
+                stage_m, discharge_m, weights_m, h0, lo_b, hi_b
+            )
+            crit_ref = _criterion(rss_ref, n, 1, criterion)
+            if crit_ref < best["crit"]:
+                best = {"knot_stages": [], "coef": coef_ref, "rss": rss_ref,
+                        "crit": crit_ref, "h0": h0_ref}
 
     while len(knot_stages) < target_knots:
         trial = None
@@ -200,7 +264,8 @@ def fit_piecewise_power_law(
             f"gaugings per segment; use fewer segments."
         )
 
-    knots_u = [math.log(s - h0) for s in best["knot_stages"]]
+    h0_used = float(best.get("h0", h0))
+    knots_u = [math.log(s - h0_used) for s in best["knot_stages"]]
     coef = best["coef"]
     k = len(knots_u) + 1
 
@@ -208,16 +273,17 @@ def fit_piecewise_power_law(
         a, b = _local_power_law(coef, [], 0)
         return {
             "is_segmented": False,
-            "spline": {"h0": float(h0), "knots_u": [], "coef": [float(c) for c in coef]},
+            "spline": {"h0": h0_used, "knots_u": [], "coef": [float(c) for c in coef]},
             "a": a,
             "b": b,
             "n_segments": 1,
+            "h0": h0_used,
             "rss_log": best["rss"],
             "criterion": criterion,
             "criterion_value": best["crit"],
         }
 
-    spline = {"h0": float(h0), "knots_u": [float(x) for x in knots_u], "coef": [float(c) for c in coef]}
+    spline = {"h0": h0_used, "knots_u": [float(x) for x in knots_u], "coef": [float(c) for c in coef]}
     modeled = evaluate_spline(spline, stage_m)
     bounds = _segment_bounds(knots_u, u_lo, u_hi + _TINY)
 
@@ -240,6 +306,7 @@ def fit_piecewise_power_law(
         "segments": segments,
         "breakpoints": [float(s) for s in best["knot_stages"]],
         "n_segments": k,
+        "h0": h0_used,
         "rss_log": best["rss"],
         "criterion": criterion,
         "criterion_value": best["crit"],
