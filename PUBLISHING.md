@@ -2,7 +2,7 @@
 
 `rating-curve-automater` is published at
 <https://pypi.org/project/rating-curve-automater/> (first release: `0.1.0`,
-2026-09-02; latest: `0.3.0`, 2026-09-03). This is the guide for cutting the next
+2026-09-02; latest: `0.3.1`, 2026-09-06). This is the guide for cutting the next
 one.
 
 ## Versioning
@@ -79,7 +79,8 @@ the CDN. Give it ~5 min before deciding something is wrong.
 **not** forward extra `streamlit` args (`--server.port`, …). Not a blocker; note
 it if a user asks.
 
-Tags so far: `v0.1.0`=`e150ec1`, `v0.2.0`=`1b3b4f3`, `v0.3.0`=`5546eb6`.
+Tags so far: `v0.1.0`=`e150ec1`, `v0.2.0`=`1b3b4f3`, `v0.3.0`=`5546eb6`,
+`v0.3.1`=`2ea1349`.
 
 ---
 
