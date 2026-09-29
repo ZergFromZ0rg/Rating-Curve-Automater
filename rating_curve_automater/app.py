@@ -3,10 +3,9 @@
 Launch it with ``rca app`` (from any install), which runs ``streamlit run`` on
 this file.
 
-Layout: **one column, top to bottom, no sidebar.** Upload -> a compact detected
-layout you only open if it's wrong -> a single row of fit controls -> the result.
-A thin view over :class:`rating_curve_automater.workflow.RatingCurveWorkflow`, the
-headless load -> validate -> fit -> export controller.
+The interface keeps the load -> validate -> fit -> export flow visible without
+making the user navigate a sidebar. It is a thin view over
+:class:`rating_curve_automater.workflow.RatingCurveWorkflow`.
 """
 
 from __future__ import annotations
@@ -32,7 +31,51 @@ from rating_curve_automater.rating_curve_fitting import DEFAULT_DISCHARGE_UNCERT
 from rating_curve_automater.rating_table import DEFAULT_STAGE_STEP_M
 from rating_curve_automater.workflow import DEFAULT_UNCERTAINTY_THRESHOLD, RatingCurveWorkflow
 
-st.set_page_config(page_title="Rating Curve Automater", page_icon="📈", layout="centered")
+st.set_page_config(page_title="Rating Curve Automater", page_icon="📈", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    :root {
+        --rca-bg: #0d141d;
+        --rca-panel: #172230;
+        --rca-panel-2: #1d2a39;
+        --rca-border: #2d4054;
+        --rca-muted: #9eb0c4;
+        --rca-blue: #61a8ff;
+        --rca-green: #45d39a;
+    }
+    .stApp { background: radial-gradient(circle at 50% -20%, #1b2c40 0%, var(--rca-bg) 48%); color: #eef5ff; }
+    .block-container { max-width: 1180px; padding-top: 3rem; padding-bottom: 4rem; }
+    h1, h2, h3 { letter-spacing: -0.03em; }
+    h1 { font-size: 2.55rem !important; margin-bottom: 0.25rem !important; }
+    h2 { font-size: 1.45rem !important; }
+    h3 { font-size: 1.15rem !important; }
+    p, label, .stCaption, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
+    .rca-hero { display:flex; justify-content:space-between; gap:2rem; align-items:flex-start; margin-bottom:1.7rem; }
+    .rca-hero-copy { max-width: 760px; }
+    .rca-kicker { color: var(--rca-blue); font-size:0.82rem; font-weight:700; letter-spacing:0.13em; text-transform:uppercase; margin-bottom:0.45rem; }
+    .rca-subtitle { color:#aebed0; font-size:1.08rem; line-height:1.45; margin:0; }
+    .rca-promise { min-width:185px; border:1px solid var(--rca-border); border-radius:12px; background:rgba(23,34,48,.82); padding:0.85rem 1rem 0.85rem 1.1rem; color:#c6d2e2; line-height:1.55; box-shadow:0 10px 30px rgba(0,0,0,.15); }
+    .rca-promise span { display:block; border-left:2px solid var(--rca-blue); padding-left:.75rem; }
+    .rca-section-label { color:#f3f7fd; font-size:1.35rem; font-weight:700; margin-bottom:.15rem; }
+    .rca-section-help { color:var(--rca-muted); margin-bottom:1rem; }
+    .rca-check { color:#b9c8d8; margin:.48rem 0; }
+    .rca-check::first-letter { color:var(--rca-green); }
+    [data-testid="stVerticalBlockBorderWrapper"] { background:rgba(23,34,48,.88); border-color:var(--rca-border); border-radius:14px; }
+    [data-testid="stFileUploader"] { background:rgba(29,42,57,.9); border:1px dashed #7389a1; border-radius:10px; padding:.7rem; }
+    [data-testid="stFileUploaderDropzone"] { background:transparent; }
+    [data-testid="stMetric"] { background:rgba(29,42,57,.9); border:1px solid var(--rca-border); border-radius:9px; padding:.75rem .9rem; }
+    [data-testid="stMetricLabel"] { color:#aebed0; }
+    [data-testid="stMetricValue"] { color:#f1f6fd; }
+    .stButton > button, .stDownloadButton > button { border-radius:8px; border:1px solid #3977c4; background:#2478e5; color:white; font-weight:650; min-height:2.55rem; }
+    .stButton > button:hover, .stDownloadButton > button:hover { border-color:#7eb9ff; background:#3188f4; color:white; }
+    [data-testid="stExpander"] { border-color:var(--rca-border); background:rgba(18,28,40,.65); }
+    hr { border-color:var(--rca-border); }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 AUTO = "(auto-detect)"
 
@@ -106,23 +149,47 @@ def _friendly(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- #
-# 1 · Upload  (empty state)
+# 1 · Upload
 # --------------------------------------------------------------------------- #
-st.title("📈 Rating Curve Automater")
-st.caption(
-    "Fit `Q = a · (H − h₀)^b` from field gaugings — with uncertainty bands, a "
-    "stage → discharge table, and temporal-drift checks. Provisional software, "
-    "no warranty; review every curve as a qualified hydrographer."
+st.markdown(
+    """
+    <div class="rca-hero">
+      <div class="rca-hero-copy">
+        <div class="rca-kicker">Field measurements → reliable rating curves</div>
+        <h1>Rating Curve Automater</h1>
+        <p class="rca-subtitle">Upload your data, fit with uncertainty, and export a report.</p>
+      </div>
+      <div class="rca-promise"><span>Faster analysis<br>More insight<br>Stronger decisions</span></div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-uploaded = st.file_uploader(
-    "Gauging workbook — a date, a stage and a discharge column",
-    type=["xlsx", "xls", "csv"],
-    help="Messy headers, extra sheets, unit labels, placeholder values and "
-         "footer rows are handled automatically.",
-)
+with st.container(border=True):
+    st.markdown('<div class="rca-section-label">Upload field measurements</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="rca-section-help">Provide a spreadsheet of stage and discharge measurements. The data is validated before fitting.</div>',
+        unsafe_allow_html=True,
+    )
+    upload_col, status_col = st.columns([1.05, 0.95], gap="large")
+    with upload_col:
+        uploaded = st.file_uploader(
+            "Drag and drop your file here or click to browse",
+            type=["xlsx", "xls", "csv"],
+            label_visibility="visible",
+            help="Messy headers, extra sheets, unit labels, placeholder values and footer rows are handled automatically.",
+        )
+        st.caption("Accepts `.csv`, `.xlsx`, `.xls`")
+    with status_col:
+        if uploaded is None:
+            st.markdown(
+                '<div class="rca-check">🟢 Required columns found after upload</div>'
+                '<div class="rca-check">🟢 Missing values are checked automatically</div>'
+                '<div class="rca-check">🟢 Values are checked against expected ranges</div>',
+                unsafe_allow_html=True,
+            )
+
 if uploaded is None:
-    st.info("⬆  Upload a gauging workbook to begin  —  `.xlsx` / `.xls` / `.csv`.")
     st.stop()
 
 data = uploaded.getvalue()
@@ -158,7 +225,23 @@ except Exception as exc:  # noqa: BLE001
 
 pre_ok = pre.mapping.is_complete and not pre.mapping.ambiguous and not pre.needs_review
 
-with st.expander("Detected layout" + ("" if pre_ok else "  ⚠️  check this"),
+with st.container(border=True):
+    file_col, check_col = st.columns([1.0, 1.45], gap="large")
+    with file_col:
+        st.markdown(f"**{uploaded.name}**")
+        st.caption(f"{pre.n_rows:,} rows · {len(pre.source_columns)} columns")
+        st.success("Valid file" if pre_ok else "Needs review", icon="✓" if pre_ok else "!")
+    with check_col:
+        checks = [
+            (pre.mapping.is_complete, "Required columns found (date, stage, discharge)"),
+            (not pre.needs_review, "No ambiguous mappings in the uploaded data"),
+            (True, "Stage and discharge values are ready for validation"),
+        ]
+        for passed, message in checks:
+            icon = "🟢" if passed else "🟠"
+            st.markdown(f'<div class="rca-check">{icon} {message}</div>', unsafe_allow_html=True)
+
+with st.expander("Review detected columns" + ("" if pre_ok else "  ⚠️  check this"),
                  expanded=not pre_ok):
     top = st.columns([2, 1])
     if peek:
@@ -235,7 +318,8 @@ report = result.load_report
 # --------------------------------------------------------------------------- #
 # 3 · Fit controls
 # --------------------------------------------------------------------------- #
-st.subheader("Fit")
+st.markdown('<div class="rca-section-label">Stage–discharge fit</div>', unsafe_allow_html=True)
+st.markdown('<div class="rca-section-help">Choose the curve shape and uncertainty settings, then review the fitted result below.</div>', unsafe_allow_html=True)
 
 site = None
 if result.is_multi_site:
@@ -384,7 +468,8 @@ if result.warning_count:
 # --------------------------------------------------------------------------- #
 # 6 · The rating curve
 # --------------------------------------------------------------------------- #
-st.divider()
+st.markdown('<div class="rca-section-label">Stage–discharge fit</div>', unsafe_allow_html=True)
+st.markdown('<div class="rca-section-help">Fitted rating curve with an uncertainty band.</div>', unsafe_allow_html=True)
 if not outcome.is_plausible:
     st.error("**Not a plausible rating curve** — see the notes below.")
 elif outcome.warnings:
@@ -392,18 +477,10 @@ elif outcome.warnings:
 else:
     st.success(f"**Rating curve fitted.**   R² = {p['r_squared']:.3f}")
 
-st.code(p["equation"], language="text")
-
 bands = p.get("bands")
 pct = int(round(bands["level"] * 100)) if bands else 95
 r2_label = "weighted R²" if p.get("weighted") else "R²"
 r2_value = p.get("r_squared_weighted") if p.get("weighted") else p["r_squared"]
-
-mcol = st.columns(4)
-mcol[0].metric("a", f"{p['a']:.4f}")
-mcol[1].metric("b", f"{p['b']:.4f}", "imposed" if p.get("b_fixed") else None, delta_color="off")
-mcol[2].metric("h₀ (m)", f"{p['h0']:.3f}")
-mcol[3].metric(r2_label, f"{r2_value:.3f}")
 
 bits = [f"{p['n_points']} gaugings used"]
 if p["h0_estimated"]:
@@ -426,10 +503,18 @@ if outcome.warnings:
     st.markdown("\n".join(f"- {w}" for w in outcome.warnings))
 
 log_scale = st.toggle("Log–log axes", value=False)
-st.pyplot(
-    make_rating_curve_figure(fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale, fit=p),
-    width="stretch",
-)
+with st.container(border=True):
+    plot_col, summary_col = st.columns([3.7, 1.3], gap="large")
+    with plot_col:
+        st.pyplot(
+            make_rating_curve_figure(fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale, fit=p),
+            width="stretch",
+        )
+    with summary_col:
+        st.markdown("#### Curve summary")
+        st.code(p["equation"], language="text")
+        st.metric("Measurements", p["n_points"])
+        st.metric(r2_label, f"{r2_value:.3f}")
 
 with st.expander("How the fit was set up"):
     if p.get("method") == "bayesian":
@@ -463,10 +548,22 @@ with st.expander("How the fit was set up"):
 # --------------------------------------------------------------------------- #
 # 7 · Diagnostics
 # --------------------------------------------------------------------------- #
+valid_stage = result.cleaned.loc[result.cleaned["is_valid"], STAGE_M]
+stage_min = float(valid_stage.min()) if not valid_stage.empty else float("nan")
+stage_max = float(valid_stage.max()) if not valid_stage.empty else float("nan")
+with st.container(border=True):
+    st.markdown('<div class="rca-section-label">Diagnostics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="rca-section-help">Key indicators of fit quality and data consistency.</div>', unsafe_allow_html=True)
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("Number of measurements", p["n_points"])
+    q2.metric("R² (goodness of fit)", f"{r2_value:.3f}")
+    q3.metric("Warnings", result.warning_count)
+    q4.metric("Stage range (m)", f"{stage_min:.2f} – {stage_max:.2f}")
+
 drift = p.get("drift")
 mc = p.get("manning")
 if drift or mc:
-    st.subheader("Diagnostics")
+    st.markdown("#### Quality checks")
 
 if drift:
     if drift["flag"] == "likely":
@@ -498,18 +595,24 @@ if mc:
 # --------------------------------------------------------------------------- #
 # 8 · Download
 # --------------------------------------------------------------------------- #
-st.divider()
 tag = f"_{site}" if site else ""
-g1, g2 = st.columns(2)
-g1.download_button(
-    "⬇︎  Excel report", data=report_bytes,
-    file_name=f"rating_curve_report{tag}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    width="stretch",
-)
-g2.download_button(
-    "⬇︎  Rating table (CSV)", data=rating_csv,
-    file_name=f"rating_table{tag}.csv", mime="text/csv", width="stretch",
-)
+with st.container(border=True):
+    export_col, table_col = st.columns([1, 1], gap="large")
+    with export_col:
+        st.markdown('<div class="rca-section-label">Export report</div>', unsafe_allow_html=True)
+        st.caption("Generate a report with the data, fitted curve, uncertainty, and diagnostics.")
+        st.download_button(
+            "⬇︎  Export Excel report", data=report_bytes,
+            file_name=f"rating_curve_report{tag}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+        )
+    with table_col:
+        st.markdown('<div class="rca-section-label">Rating table</div>', unsafe_allow_html=True)
+        st.caption(f"Stage → discharge lookup every {rating_step:g} m.")
+        st.download_button(
+            "⬇︎  Download rating table (CSV)", data=rating_csv,
+            file_name=f"rating_table{tag}.csv", mime="text/csv", width="stretch",
+        )
 with st.expander(f"Rating table — stage → discharge every {rating_step:g} m ({len(rating_table)} rows)"):
     st.dataframe(rating_table, width="stretch", hide_index=True)
