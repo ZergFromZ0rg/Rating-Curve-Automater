@@ -8,9 +8,9 @@ import pandas as pd
 from rating_curve_automater.rating_curve_fitting import predict_discharge, select_valid_measurements
 from rating_curve_automater.schema import DISCHARGE_CMS, STAGE_M
 
-OBSERVED_COLOR = "#1f77b4"
-MODEL_COLOR = "#d62728"
-WARNING_COLOR = "#ff7f0e"
+OBSERVED_COLOR = "#75b9ff"
+MODEL_COLOR = "#61a8ff"
+WARNING_COLOR = "#f4b860"
 
 
 def make_rating_curve_figure(
@@ -34,9 +34,11 @@ def make_rating_curve_figure(
     stage = working[STAGE_M].to_numpy(dtype=float)
     observed = working[DISCHARGE_CMS].to_numpy(dtype=float)
 
-    fig = figure if figure is not None else Figure(figsize=(6.4, 3.8))
+    fig = figure if figure is not None else Figure(figsize=(8.8, 4.8), dpi=130)
     fig.clear()
     ax = fig.add_subplot(111)
+    fig.patch.set_facecolor("#172230")
+    ax.set_facecolor("#172230")
 
     warned = None
     if "has_warning" in working.columns:
@@ -100,11 +102,14 @@ def make_rating_curve_figure(
         ax.set_xscale("log")
         ax.set_yscale("log")
 
-    ax.set_xlabel("Stage above bed (m)")
-    ax.set_ylabel("Discharge (m³/s)")
-    ax.set_title("Rating curve")
-    ax.grid(True, which="both", alpha=0.3)
-    ax.legend(fontsize=8)
+    ax.set_xlabel("Stage (m)", color="#c6d2e2")
+    ax.set_ylabel("Discharge (m³/s)", color="#c6d2e2")
+    ax.set_title("Fitted rating curve", color="#eef5ff", loc="left", pad=12, fontweight="bold")
+    ax.tick_params(colors="#aebed0")
+    for spine in ax.spines.values():
+        spine.set_color("#395068")
+    ax.grid(True, which="both", color="#395068", alpha=0.55)
+    ax.legend(fontsize=8, facecolor="#1d2a39", edgecolor="#395068", labelcolor="#c6d2e2")
     fig.tight_layout()
     return fig
 
