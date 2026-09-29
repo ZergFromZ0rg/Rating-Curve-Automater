@@ -54,8 +54,8 @@ st.markdown(
     h2 { font-size: 1.45rem !important; }
     h3 { font-size: 1.15rem !important; }
     p, label, .stCaption, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
-    .rca-hero { display:flex; justify-content:space-between; gap:2rem; align-items:flex-start; margin-bottom:.85rem; }
-    .rca-hero-copy { max-width: 760px; }
+    .rca-hero { display:flex; justify-content:space-between; gap:1.25rem; align-items:flex-start; margin-bottom:.85rem; flex-wrap:wrap; }
+    .rca-hero-copy { max-width: 760px; min-width:0; flex:1 1 520px; }
     .rca-kicker { color: var(--rca-blue); font-size:0.82rem; font-weight:700; letter-spacing:0.13em; text-transform:uppercase; margin-bottom:0.45rem; }
     .rca-subtitle { color:#aebed0; font-size:1.08rem; line-height:1.45; margin:0; }
     .rca-promise { min-width:160px; border:1px solid var(--rca-border); border-radius:8px; background:var(--rca-panel); padding:0.6rem .8rem 0.6rem .9rem; color:#c6d2e2; line-height:1.4; }
@@ -75,6 +75,11 @@ st.markdown(
     .stButton > button:hover, .stDownloadButton > button:hover { border-color:#7eb9ff; background:#3188f4; color:white; }
     [data-testid="stExpander"] { border-color:var(--rca-border); background:rgba(18,28,40,.65); }
     hr { border-color:var(--rca-border); }
+    @media (max-width: 760px) {
+        .block-container { padding-left: .8rem; padding-right: .8rem; }
+        h1 { font-size: 1.8rem !important; }
+        .rca-promise { width:100%; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -328,19 +333,15 @@ st.markdown('<div class="rca-section-label">Stage–discharge fit</div>', unsafe
 st.markdown('<div class="rca-section-help">Choose the curve shape and uncertainty settings, then review the fitted result below.</div>', unsafe_allow_html=True)
 
 site = None
-if result.is_multi_site:
-    site = st.selectbox("Site", ["(all sites)", *result.sites])
-    site = None if site == "(all sites)" else site
-
-c1, c2 = st.columns(2)
-segments = c1.selectbox(
+control_cols = st.columns(3 if result.is_multi_site else 2)
+segments = control_cols[0].selectbox(
     "Curve shape", [1, 2, 3, "auto"],
     format_func=lambda n: {1: "Single power law", 2: "2 segments", 3: "3 segments",
                            "auto": "Auto (BIC picks 1–4)"}[n],
     help="A compound control (a low-flow notch under a wider channel) needs more "
          "than one power-law segment.",
 )
-method_label = c2.selectbox(
+method_label = control_cols[1].selectbox(
     "Method", ["Least squares", "Bayesian"],
     help="Least squares: fast log–log regression (auto-weighted by a discharge-"
          "uncertainty column). Bayesian: thodson-usgs `ratingcurve` (PyMC) — "
@@ -348,6 +349,10 @@ method_label = c2.selectbox(
          "extra and ≈ 1 min for the first fit.",
 )
 method = "bayesian" if method_label == "Bayesian" else "ols"
+
+if result.is_multi_site:
+    site_pick = control_cols[2].selectbox("Site", ["(all sites)", *result.sites])
+    site = None if site_pick == "(all sites)" else site_pick
 
 bayesian_sampler = "auto"
 if method == "bayesian":
