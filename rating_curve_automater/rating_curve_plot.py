@@ -134,8 +134,10 @@ def make_residual_time_figure(df: pd.DataFrame, fit: dict, figure=None):
     fig = figure if figure is not None else Figure(figsize=(6.4, 3.0))
     fig.clear()
     ax = fig.add_subplot(111)
+    fig.patch.set_facecolor("#172230")
+    ax.set_facecolor("#172230")
 
-    ax.axhline(0.0, color="#7f7f7f", linewidth=1, zorder=1)
+    ax.axhline(0.0, color="#7f8fa3", linewidth=1, zorder=1)
     ax.scatter(dates, resid, s=22, color=OBSERVED_COLOR, zorder=3)
 
     drift = fit.get("drift") or {}
@@ -147,12 +149,15 @@ def make_residual_time_figure(df: pd.DataFrame, fit: dict, figure=None):
         trend_pct = (np.exp(intercept + slope * t_years) - 1.0) * 100.0
         ax.plot(dates, trend_pct, color=MODEL_COLOR, linewidth=1.8,
                 label=f"trend {rate:+.1f}%/yr", zorder=2)
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, facecolor="#1d2a39", edgecolor="#395068", labelcolor="#c6d2e2")
 
-    ax.set_xlabel("Gauging date")
-    ax.set_ylabel("Observed − modelled (%)")
-    ax.set_title("Rating-curve residuals over time")
-    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Gauging date", color="#c6d2e2")
+    ax.set_ylabel("Observed − modelled (%)", color="#c6d2e2")
+    ax.set_title("Rating-curve residuals over time", color="#eef5ff", loc="left", fontweight="bold")
+    ax.tick_params(colors="#aebed0")
+    for spine in ax.spines.values():
+        spine.set_color("#395068")
+    ax.grid(True, color="#395068", alpha=0.55)
     fig.autofmt_xdate()
     fig.tight_layout()
     return fig

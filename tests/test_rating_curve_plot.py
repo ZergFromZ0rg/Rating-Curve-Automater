@@ -27,7 +27,7 @@ def test_make_rating_curve_figure_returns_axes_with_series():
     ax = fig.axes[0]
     labels = [line.get_label() for line in ax.get_lines()]
     assert any("Q =" in label for label in labels)
-    assert ax.get_xlabel() == "Stage above bed (m)"
+    assert ax.get_xlabel() == "Stage (m)"
 
 
 def test_make_rating_curve_figure_reuses_supplied_figure_and_logscale():
