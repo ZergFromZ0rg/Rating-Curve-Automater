@@ -51,6 +51,14 @@ flowchart LR
     C --> F[CLI or web app]
 ```
 
+### Interface preview
+
+![Rating Curve Automater interface preview](docs/images/rating-curve-automater-ui-preview.png)
+
+The preview shows the intended workflow: validate the uploaded measurements,
+inspect the fitted curve and uncertainty band, review diagnostics, and export
+the report.
+
 ## Quick start
 
 ```bash
