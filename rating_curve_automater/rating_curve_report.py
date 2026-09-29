@@ -1,3 +1,5 @@
+"""Generate the reviewable multi-sheet Excel rating-curve report."""
+
 from __future__ import annotations
 
 import datetime as _dt

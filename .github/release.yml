@@ -1,0 +1,25 @@
+changelog:
+  categories:
+    - title: User-facing changes
+      labels:
+        - enhancement
+        - breaking-change
+    - title: Bug fixes
+      labels:
+        - bug
+    - title: Documentation and maintenance
+      labels:
+        - documentation
+        - dependencies
+        - chore
+    - title: Other changes
+      labels:
+        - '*'
+      exclude:
+        labels:
+          - enhancement
+          - breaking-change
+          - bug
+          - documentation
+          - dependencies
+          - chore

@@ -5,8 +5,12 @@
 [![Tests](https://github.com/ZergFromZ0rg/Rating-Curve-Automater/actions/workflows/test.yml/badge.svg)](https://github.com/ZergFromZ0rg/Rating-Curve-Automater/actions/workflows/test.yml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
-Automates building a stage–discharge **rating curve** from field measurements: it
-cleans and validates a measurement workbook, fits the power-law model
+Turn messy field-gauging spreadsheets into a reviewable, uncertainty-aware
+stage–discharge rating curve. Rating Curve Automater helps hydrologists move
+from raw measurements to a documented Excel report without hiding the judgment
+calls that matter.
+
+It cleans and validates a measurement workbook, fits the power-law model
 
 ```
 Q = a · (H − h0)^b
@@ -23,6 +27,42 @@ multi-sheet Excel report with charts.
 > operational use.
 
 Licensed under the [BSD 3-Clause License](LICENSE).
+
+## Why this project
+
+Rating-curve work often starts with inconsistent spreadsheets and ends with a
+decision that needs to be explained later. This project keeps the path between
+those points visible:
+
+- tolerant loading with explicit column, sheet, header, and unit decisions;
+- single, piecewise, weighted, or Bayesian fits with confidence and prediction
+  bands;
+- validation, leave-one-out error, temporal-drift diagnostics, and optional
+  Manning cross-checks;
+- a CLI, a Streamlit app, and a multi-sheet Excel report over the same workflow
+  API.
+
+```mermaid
+flowchart LR
+    A[Field workbook] --> B[Load and validate]
+    B --> C[Fit rating curve]
+    C --> D[Uncertainty and diagnostics]
+    D --> E[Excel report / rating table]
+    C --> F[CLI or web app]
+```
+
+## Quick start
+
+```bash
+uv tool install "rating-curve-automater[app]"
+rca validate --default-dataset
+rca fit --segments auto --loo
+rca report --output rating_curve_report.xlsx
+```
+
+For a local checkout, use the [contributor guide](CONTRIBUTING.md). For release
+maintenance, see [PUBLISHING.md](PUBLISHING.md); security concerns belong in
+[SECURITY.md](SECURITY.md).
 
 ## Install
 
