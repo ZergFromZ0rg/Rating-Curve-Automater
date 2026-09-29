@@ -45,7 +45,7 @@ st.markdown(
         --rca-blue: #61a8ff;
         --rca-green: #45d39a;
     }
-    .stApp { background: radial-gradient(circle at 50% -20%, #1b2c40 0%, var(--rca-bg) 48%); color: #eef5ff; }
+    .stApp { background: var(--rca-bg); color: #eef5ff; }
     .block-container { max-width: 1180px; padding-top: 3rem; padding-bottom: 4rem; }
     h1, h2, h3 { letter-spacing: -0.03em; }
     h1 { font-size: 2.55rem !important; margin-bottom: 0.25rem !important; }
@@ -56,7 +56,7 @@ st.markdown(
     .rca-hero-copy { max-width: 760px; }
     .rca-kicker { color: var(--rca-blue); font-size:0.82rem; font-weight:700; letter-spacing:0.13em; text-transform:uppercase; margin-bottom:0.45rem; }
     .rca-subtitle { color:#aebed0; font-size:1.08rem; line-height:1.45; margin:0; }
-    .rca-promise { min-width:185px; border:1px solid var(--rca-border); border-radius:12px; background:rgba(23,34,48,.82); padding:0.85rem 1rem 0.85rem 1.1rem; color:#c6d2e2; line-height:1.55; box-shadow:0 10px 30px rgba(0,0,0,.15); }
+    .rca-promise { min-width:185px; border:1px solid var(--rca-border); border-radius:8px; background:var(--rca-panel); padding:0.85rem 1rem 0.85rem 1.1rem; color:#c6d2e2; line-height:1.55; }
     .rca-promise span { display:block; border-left:2px solid var(--rca-blue); padding-left:.75rem; }
     .rca-section-label { color:#f3f7fd; font-size:1.35rem; font-weight:700; margin-bottom:.15rem; }
     .rca-section-help { color:var(--rca-muted); margin-bottom:1rem; }
@@ -230,7 +230,10 @@ with st.container(border=True):
     with file_col:
         st.markdown(f"**{uploaded.name}**")
         st.caption(f"{pre.n_rows:,} rows · {len(pre.source_columns)} columns")
-        st.success("Valid file" if pre_ok else "Needs review", icon="✓" if pre_ok else "!")
+        if pre_ok:
+            st.success("Valid file", icon="✅")
+        else:
+            st.warning("Needs review", icon="⚠️")
     with check_col:
         checks = [
             (pre.mapping.is_complete, "Required columns found (date, stage, discharge)"),
