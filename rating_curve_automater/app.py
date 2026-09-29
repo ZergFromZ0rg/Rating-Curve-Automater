@@ -3,19 +3,23 @@
 Launch it with ``rca app`` (from any install), which runs ``streamlit run`` on
 this file.
 
-The interface keeps the load -> validate -> fit -> export flow visible without
-making the user navigate a sidebar. It is a thin view over
+The interface is a one-screen dashboard: a narrow control panel on the left
+(upload, column mapping, fit settings) and the result on the right (status and
+downloads, headline numbers, the plot beside the quality checks, then tabs for
+the detail). It is a thin view over
 :class:`rating_curve_automater.workflow.RatingCurveWorkflow`.
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 import tempfile
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from matplotlib.figure import Figure
 
 from rating_curve_automater.loader import load_measurements
 from rating_curve_automater.rating_curve_plot import make_rating_curve_figure, make_residual_time_figure
@@ -41,42 +45,84 @@ st.markdown(
         --rca-panel: #172230;
         --rca-panel-2: #1d2a39;
         --rca-border: #2d4054;
+        --rca-text: #eef5ff;
         --rca-muted: #9eb0c4;
         --rca-blue: #61a8ff;
         --rca-green: #45d39a;
+        --rca-amber: #f4b860;
+        --rca-red: #ff8a80;
+        --rca-focus: #9ccbff;
     }
-    .stApp { background: var(--rca-bg); color: #eef5ff; }
-    .block-container { max-width: 1280px; padding-top: 1.65rem; padding-bottom: 1rem; }
-    [data-testid="stVerticalBlock"] { gap: .52rem; }
-    [data-testid="stHorizontalBlock"] { gap: .8rem; }
-    h1, h2, h3 { letter-spacing: -0.03em; }
-    h1 { font-size: 1.9rem !important; margin-bottom: 0.05rem !important; }
-    h2 { font-size: 1.45rem !important; }
-    h3 { font-size: 1.15rem !important; }
-    p, label, .stCaption, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
-    .rca-hero { margin-bottom:.5rem; }
-    .rca-hero-copy { max-width: 820px; }
-    .rca-kicker { color: var(--rca-blue); font-size:0.82rem; font-weight:700; letter-spacing:0.13em; text-transform:uppercase; margin-bottom:0.45rem; }
-    .rca-subtitle { color:#aebed0; font-size:1.08rem; line-height:1.45; margin:0; }
-    .rca-section-label { color:#f3f7fd; font-size:1.35rem; font-weight:700; margin-bottom:.15rem; }
-    .rca-section-help { color:var(--rca-muted); margin-bottom:.55rem; }
-    .rca-check { color:#b9c8d8; margin:.48rem 0; }
-    .rca-check::first-letter { color:var(--rca-green); }
-    [data-testid="stVerticalBlockBorderWrapper"] { background:rgba(23,34,48,.88); border-color:var(--rca-border); border-radius:10px; }
-    [data-testid="stVerticalBlockBorderWrapper"] > div { padding-top:.65rem; padding-bottom:.65rem; }
-    [data-testid="stFileUploader"] { background:rgba(29,42,57,.9); border:1px dashed #7389a1; border-radius:10px; padding:.7rem; }
-    [data-testid="stFileUploaderDropzone"] { background:transparent; }
-    [data-testid="stMetric"] { background:rgba(29,42,57,.9); border:1px solid var(--rca-border); border-radius:7px; padding:.45rem .65rem; }
-    [data-testid="stMetricLabel"] { color:#aebed0; }
-    [data-testid="stMetricValue"] { color:#f1f6fd; }
-    .stButton > button, .stDownloadButton > button { width:auto !important; min-width:0 !important; border-radius:6px; border:1px solid #3977c4; background:#2478e5; color:white; font-weight:650; min-height:2.25rem; padding:.35rem .8rem; }
-    .stButton > button:hover, .stDownloadButton > button:hover { border-color:#7eb9ff; background:#3188f4; color:white; }
-    [data-testid="stExpander"] { border-color:var(--rca-border); background:rgba(18,28,40,.65); }
+    .stApp { background: var(--rca-bg); color: var(--rca-text); }
+    header[data-testid="stHeader"] { background: transparent; }
+    [data-testid="stAppDeployButton"] { display: none; }
+    .block-container { max-width: 1680px; padding: .8rem 1.25rem 1.5rem; }
+    [data-testid="stVerticalBlock"] { gap: .45rem; }
+    [data-testid="stHorizontalBlock"] { gap: .6rem; }
+    p, label, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
+    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { font-size: .78rem; color: var(--rca-muted); }
+    [data-testid="stWidgetLabel"] p { font-size: .82rem; }
+    /* Streamlit pulls markdown up by 1rem to cancel a <p> margin; our HTML blocks have none */
+    [data-testid="stMarkdownContainer"]:has(> .rca-title, > .rca-label, > .rca-file, > .rca-eq, > .rca-empty) { margin-bottom: 0; }
+
+    /* title bar — leaves room for Streamlit's menu on the right */
+    .rca-title { display:flex; align-items:baseline; flex-wrap:wrap; gap:.2rem .75rem; margin:0 6rem .2rem 0; }
+    .rca-title h1 { font-size:1.3rem !important; line-height:1.3 !important; margin:0 !important; padding:0 !important; letter-spacing:-.02em; }
+    .rca-title span { color:var(--rca-muted); font-size:.85rem; }
+
+    /* panels */
+    .st-key-rca-panel, .st-key-rca-plot, .st-key-rca-checks, .st-key-rca-colmap-inline {
+        background: var(--rca-panel); border-color: var(--rca-border) !important; border-radius: 8px;
+    }
+    .st-key-rca-panel { gap: .5rem; }
+    .rca-label { color:var(--rca-muted); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; margin:.3rem 0 -.2rem; }
+    .rca-file { color:var(--rca-muted); font-size:.78rem; }
+
+    /* file uploader: a slim drop strip instead of a tall box */
+    [data-testid="stFileUploaderDropzone"] { background: var(--rca-panel-2); border:1px dashed #5d7590; border-radius:6px; padding:.45rem .6rem; }
+    [data-testid="stFileUploaderDropzoneInstructions"] small { font-size:.72rem; }
+
+    /* buttons: compact (32 px) but a comfortable hit target, with a clear focus ring */
+    .stButton button, .stDownloadButton button, [data-testid="stPopoverButton"] {
+        min-height: 2rem; padding: .25rem .75rem; border-radius: 6px; font-size: .85rem; font-weight: 600;
+    }
+    [data-testid="stBaseButton-primary"] { background:#2478e5; border:1px solid #3d8bf0; color:#fff; }
+    [data-testid="stBaseButton-primary"]:hover { background:#3188f4; border-color:#7eb9ff; color:#fff; }
+    [data-testid="stBaseButton-secondary"], [data-testid="stPopoverButton"] { background:var(--rca-panel-2); border:1px solid #3a5570; color:#dbe6f3; }
+    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stPopoverButton"]:hover { border-color:var(--rca-blue); color:#fff; }
+    .stButton button p, .stDownloadButton button p, [data-testid="stPopoverButton"] p { font-size: inherit; }
+    [data-testid="stPopoverButton"] > div { margin-right: 0 !important; }  /* else the label ellipsises */
+    button:focus-visible, [role="tab"]:focus-visible, input:focus-visible { outline: 2px solid var(--rca-focus) !important; outline-offset: 2px; }
+
+    /* status line + alerts: one line, not a slab */
+    [data-testid="stAlertContainer"] { padding: .5rem .8rem; border-radius: 6px; }
+    [data-testid="stAlertContainer"] p { font-size: .9rem; }
+
+    /* headline numbers */
+    [data-testid="stMetric"] { background:var(--rca-panel); border:1px solid var(--rca-border); border-radius:6px; padding:.4rem .6rem; }
+    [data-testid="stMetricLabel"] p { font-size:.74rem; color:var(--rca-muted); }
+    [data-testid="stMetricValue"] { font-size:1.2rem; line-height:1.3; font-weight:600; color:#f1f6fd; }
+    [data-testid="stMetricDelta"] { font-size:.72rem; max-width:100%; }
+    [data-testid="stMetricDelta"] p, [data-testid="stMetricLabel"] p { white-space:normal; overflow:visible; }
+    .rca-eq { display:flex; gap:.6rem; align-items:baseline; font-size:.82rem; color:var(--rca-muted); }
+    .rca-eq code { color:#dbe6f3; background:var(--rca-panel-2); border:1px solid var(--rca-border); border-radius:5px; padding:.1rem .45rem; white-space:normal; }
+
+    /* quality checks: icon + title + detail, never colour alone */
+    .rca-chk { display:grid; grid-template-columns: 1.25rem 1fr; gap:.45rem; padding:.42rem 0; border-top:1px solid var(--rca-border); font-size:.8rem; line-height:1.35; color:#c6d2e2; }
+    .rca-chk:first-of-type { border-top:0; }
+    .rca-chk b { display:block; color:#eef5ff; font-weight:600; font-size:.84rem; }
+    .rca-chk-ic { width:1.25rem; height:1.25rem; border-radius:50%; display:grid; place-items:center; font-size:.72rem; font-weight:800; color:#0d141d; }
+    .rca-ok .rca-chk-ic { background:var(--rca-green); }
+    .rca-warn .rca-chk-ic { background:var(--rca-amber); }
+    .rca-bad .rca-chk-ic { background:var(--rca-red); }
+    .rca-info .rca-chk-ic { background:var(--rca-blue); }
+    .rca-empty { max-width: 40rem; margin-top: .4rem; }
+
+    /* tabs + expanders */
+    [data-testid="stTabs"] [role="tab"] p { font-size:.86rem; }
+    [data-testid="stExpander"] details { border-color:var(--rca-border); background:rgba(18,28,40,.65); border-radius:6px; }
+    [data-testid="stExpander"] summary { padding:.4rem .65rem; font-size:.86rem; }
     hr { border-color:var(--rca-border); }
-    @media (max-width: 760px) {
-        .block-container { padding-left: .8rem; padding-right: .8rem; }
-        h1 { font-size: 1.65rem !important; }
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -153,46 +199,51 @@ def _friendly(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns={k: v for k, v in FIELD_LABELS.items() if k in df.columns})
 
 
+_CHECK_ICON = {"ok": "✓", "warn": "!", "bad": "✕", "info": "i"}
+
+
+def _check(level: str, title: str, detail: str = "") -> str:
+    """One row of the checks list. The title carries the verdict in words, so
+    the coloured icon is never the only signal."""
+    body = f"<b>{html.escape(title)}</b>" + (html.escape(detail) if detail else "")
+    return (f'<div class="rca-chk rca-{level}"><span class="rca-chk-ic" aria-hidden="true">'
+            f'{_CHECK_ICON[level]}</span><div>{body}</div></div>')
+
+
 # --------------------------------------------------------------------------- #
-# 1 · Upload
+# Layout: title bar, then a narrow control panel beside the result area.
 # --------------------------------------------------------------------------- #
 st.markdown(
-    """
-    <div class="rca-hero">
-      <div class="rca-hero-copy">
-        <h1>Rating Curve Automater</h1>
-        <p class="rca-subtitle">Upload measurements, fit a rating curve, and export the results.</p>
-      </div>
-    </div>
-    """,
+    '<div class="rca-title"><h1>Rating Curve Automater</h1>'
+    '<span>Stage–discharge rating curves from a gauging spreadsheet</span></div>',
     unsafe_allow_html=True,
 )
+side, main = st.columns([1, 3.3], gap="medium")
+panel = side.container(border=True, key="rca-panel")
 
-with st.container(border=True):
-    st.markdown('<div class="rca-section-label">Upload field measurements</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="rca-section-help">Provide a spreadsheet of stage and discharge measurements. The data is validated before fitting.</div>',
-        unsafe_allow_html=True,
+with panel:
+    uploaded = st.file_uploader(
+        "Measurement spreadsheet",
+        type=["xlsx", "xls", "csv"],
+        help="Messy headers, extra sheets, unit labels, placeholder values and footer rows are handled automatically.",
     )
-    upload_col, status_col = st.columns([1.05, 0.95], gap="large")
-    with upload_col:
-        uploaded = st.file_uploader(
-            "Drag and drop your file here or click to browse",
-            type=["xlsx", "xls", "csv"],
-            label_visibility="visible",
-            help="Messy headers, extra sheets, unit labels, placeholder values and footer rows are handled automatically.",
-        )
-        st.caption("Accepts `.csv`, `.xlsx`, `.xls`")
-    with status_col:
-        if uploaded is None:
-            st.markdown(
-                '<div class="rca-check">🟢 Required columns found after upload</div>'
-                '<div class="rca-check">🟢 Missing values are checked automatically</div>'
-                '<div class="rca-check">🟢 Values are checked against expected ranges</div>',
-                unsafe_allow_html=True,
-            )
 
 if uploaded is None:
+    with main:
+        st.info("Upload a spreadsheet of stage–discharge gaugings in the panel on the left. "
+                "The fitted curve, its checks and the downloads appear here.",
+                icon=":material/upload_file:")
+        st.markdown(
+            '<div class="rca-empty">'
+            + _check("ok", "Columns detected automatically",
+                     "Date, stage and discharge — you can override any of them.")
+            + _check("ok", "Rows validated before fitting",
+                     "Missing, placeholder and out-of-range values are excluded with a reason.")
+            + _check("ok", "Everything on one screen",
+                     "Curve and uncertainty band, drift check, Excel report and rating table.")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
     st.stop()
 
 data = uploaded.getvalue()
@@ -212,10 +263,10 @@ except Exception:
 
 
 # --------------------------------------------------------------------------- #
-# 2 · Detected layout  (open it only if something's off)
+# Column mapping — a popover when detection worked, inline when it didn't
 # --------------------------------------------------------------------------- #
-# A first probe with whatever sheet/header the widgets already hold, so the
-# expander can decide whether to open itself before its widgets are drawn.
+# A first probe with whatever sheet/header the widgets already hold, so we know
+# where to draw the mapping widgets before they exist.
 _sheet0 = st.session_state.get("sheet_pick")
 _sheet0 = None if _sheet0 in (None, AUTO) else _sheet0
 _hdr0 = st.session_state.get("hdr_pick", "")
@@ -223,33 +274,29 @@ _hdr0 = int(_hdr0) - 1 if str(_hdr0).strip().isdigit() else None
 try:
     pre = probe(file_key, path, _sheet0, _hdr0)
 except Exception as exc:  # noqa: BLE001
-    st.error(f"Could not read the file: {exc}")
+    main.error(f"Could not read the file: {exc}")
     st.stop()
 
-pre_ok = pre.mapping.is_complete and not pre.mapping.ambiguous and not pre.needs_review
+alert_box = main.container()
+with panel:
+    st.markdown(
+        f'<div class="rca-file">{pre.n_rows:,} rows · {len(pre.source_columns)} columns</div>',
+        unsafe_allow_html=True,
+    )
+    if pre.mapping.is_complete:
+        map_box = st.popover(
+            "Columns — check" if pre.needs_review else "Columns",
+            icon=":material/warning:" if pre.needs_review else ":material/table_view:",
+            width="stretch",
+            help="Sheet, header row, and which column holds each field.",
+        )
+    else:
+        map_box = main.container(border=True, key="rca-colmap-inline")
 
-with st.container(border=True):
-    file_col, check_col = st.columns([1.0, 1.45], gap="large")
-    with file_col:
-        st.markdown(f"**{uploaded.name}**")
-        st.caption(f"{pre.n_rows:,} rows · {len(pre.source_columns)} columns")
-        if pre_ok:
-            st.success("Valid file", icon="✅")
-        else:
-            st.warning("Needs review", icon="⚠️")
-    with check_col:
-        checks = [
-            (pre.mapping.is_complete, "Required columns found (date, stage, discharge)"),
-            (not pre.needs_review, "No ambiguous mappings in the uploaded data"),
-            (True, "Stage and discharge values are ready for validation"),
-        ]
-        for passed, message in checks:
-            icon = "🟢" if passed else "🟠"
-            st.markdown(f'<div class="rca-check">{icon} {message}</div>', unsafe_allow_html=True)
-
-with st.expander("Review detected columns" + ("" if pre_ok else "  ⚠️  check this"),
-                 expanded=not pre_ok):
-    top = st.columns([2, 1])
+with map_box:
+    if not pre.mapping.is_complete:
+        st.markdown("**Match your columns** — auto-detection couldn't find all three required fields.")
+    top = st.columns([2.4, 1], gap="small")
     if peek:
         sheet_pick = top[0].selectbox("Sheet", [AUTO, *peek], key="sheet_pick")
         sheet = None if sheet_pick == AUTO else sheet_pick
@@ -269,12 +316,8 @@ with st.expander("Review detected columns" + ("" if pre_ok else "  ⚠️  check
 
     for canonical, cands in base_report.mapping.ambiguous.items():
         picked, *others = cands
-        st.warning(
-            f"**{FIELD_LABELS.get(canonical, canonical)}** matched more than one "
-            f"column — using **{picked}**, not {', '.join(others)}. Change it below "
-            f"if that's wrong.",
-            icon="⚠️",
-        )
+        st.caption(f"⚠️ **{FIELD_LABELS.get(canonical, canonical)}** matched more than one "
+                   f"column — using **{picked}**, not {', '.join(others)}.")
     conv = [f"{FIELD_LABELS.get(k, k)} converted from {u.label}"
             for k, u in (base_report.units or {}).items()
             if getattr(u, "detected", False) and getattr(u, "factor", 1.0) != 1.0]
@@ -290,7 +333,7 @@ with st.expander("Review detected columns" + ("" if pre_ok else "  ⚠️  check
         return pick if pick != AUTO else None
 
     overrides: dict[str, str] = {}
-    req_cols = st.columns(len(REQUIRED_FIELDS))
+    req_cols = st.columns(len(REQUIRED_FIELDS), gap="small")
     for col, field_name in zip(req_cols, REQUIRED_FIELDS):
         chosen = _map(field_name, col)
         if chosen:
@@ -299,7 +342,7 @@ with st.expander("Review detected columns" + ("" if pre_ok else "  ⚠️  check
     optional = [f for f in ALL_FIELDS if f not in REQUIRED_FIELDS]
     if any(base_report.mapping.fields.get(f) for f in optional) or \
             st.checkbox("Map optional columns (quality, field notes, site, uncertainty…)"):
-        opt_cols = st.columns(3)
+        opt_cols = st.columns(3, gap="small")
         for i, field_name in enumerate(optional):
             chosen = _map(field_name, opt_cols[i % 3])
             if chosen:
@@ -311,10 +354,10 @@ with st.expander("Review detected columns" + ("" if pre_ok else "  ⚠️  check
 try:
     result = validate(file_key, path, sheet, header_row, tuple(sorted(overrides.items())))
 except Exception as exc:  # noqa: BLE001
-    st.error(
+    where = "under **Columns** in the left panel" if pre.mapping.is_complete else "below"
+    alert_box.error(
         "Couldn't identify a **date**, a **stage** and a **discharge** column. "
-        "Open **Detected layout** above and set the starred fields.\n\n"
-        f"```\n{exc}\n```"
+        f"Set the starred fields {where}.\n\n```\n{exc}\n```"
     )
     st.stop()
 
@@ -322,114 +365,108 @@ report = result.load_report
 
 
 # --------------------------------------------------------------------------- #
-# 3 · Fit controls
+# Fit controls (left panel)
 # --------------------------------------------------------------------------- #
-st.markdown('<div class="rca-section-label">Stage–discharge fit</div>', unsafe_allow_html=True)
-st.markdown('<div class="rca-section-help">Choose the curve shape and uncertainty settings, then review the fitted result below.</div>', unsafe_allow_html=True)
-
 site = None
-control_cols = st.columns(3 if result.is_multi_site else 2)
-segments = control_cols[0].selectbox(
-    "Curve shape", [1, 2, 3, "auto"],
-    format_func=lambda n: {1: "Single power law", 2: "2 segments", 3: "3 segments",
-                           "auto": "Auto (BIC picks 1–4)"}[n],
-    help="A compound control (a low-flow notch under a wider channel) needs more "
-         "than one power-law segment.",
-)
-method_label = control_cols[1].selectbox(
-    "Method", ["Least squares", "Bayesian"],
-    help="Least squares: fast log–log regression (auto-weighted by a discharge-"
-         "uncertainty column). Bayesian: thodson-usgs `ratingcurve` (PyMC) — "
-         "samples h₀, slopes and breakpoints jointly; needs the `[bayesian]` "
-         "extra and ≈ 1 min for the first fit.",
-)
-method = "bayesian" if method_label == "Bayesian" else "ols"
-
-if result.is_multi_site:
-    site_pick = control_cols[2].selectbox("Site", ["(all sites)", *result.sites])
-    site = None if site_pick == "(all sites)" else site_pick
-
 bayesian_sampler = "auto"
-if method == "bayesian":
-    bayesian_sampler = st.radio(
-        "Sampler", ["auto", "nuts", "advi"], horizontal=True,
-        format_func=lambda s: {"auto": "auto (NUTS ≤ 200 gaugings)",
-                               "nuts": "NUTS — exact, slow",
-                               "advi": "ADVI — variational, fast"}[s],
+with panel:
+    st.markdown('<div class="rca-label">Fit</div>', unsafe_allow_html=True)
+    segments = st.selectbox(
+        "Curve shape", [1, 2, 3, "auto"],
+        format_func=lambda n: {1: "Single power law", 2: "2 segments", 3: "3 segments",
+                               "auto": "Auto (BIC picks 1–4)"}[n],
+        help="A compound control (a low-flow notch under a wider channel) needs more "
+             "than one power-law segment.",
     )
-
-t1, t2 = st.columns(2)
-set_h0 = t1.checkbox("Set h₀ (stage of zero flow) by hand",
-                     help="Off = estimate it from the low-flow gaugings.")
-h0 = t1.number_input("h₀ (m)", value=0.18, step=0.01, format="%.3f") if set_h0 else None
-
-fixed_b = None
-if method == "ols":
-    if t2.checkbox("Impose the exponent b",
-                   help="Pin b from the control type (≈1.5 broad-crested weir, "
-                        "≈2–2.5 natural section control, ≈2.5 V-notch) and fit only "
-                        "a — for records too sparse or scattered to identify b on "
-                        "their own. Single-segment only."):
-        fixed_b = t2.number_input("b", min_value=0.1, max_value=5.0, value=2.0,
-                                  step=0.1, format="%.2f")
-        if segments != 1:
-            t2.caption("↳ forced to a single segment.")
-            segments = 1
-
-# ---- uncertainty & flags --------------------------------------------------
-with st.expander("Uncertainty & point flags"):
-    uncertainty_pct = st.number_input(
-        "Assumed discharge-measurement uncertainty (±%)", min_value=0.5, max_value=100.0,
-        value=float(DEFAULT_DISCHARGE_UNCERTAINTY_PCT), step=0.5,
-        help="Applied to gaugings with no value in a mapped 'Discharge uncertainty "
-             "(±%)' column. Sets the confidence/prediction band width; a *varying* "
-             "mapped column also re-weights the fit point by point.",
+    method_label = st.selectbox(
+        "Method", ["Least squares", "Bayesian"],
+        help="Least squares: fast log–log regression (auto-weighted by a discharge-"
+             "uncertainty column). Bayesian: thodson-usgs `ratingcurve` (PyMC) — "
+             "samples h₀, slopes and breakpoints jointly; needs the `[bayesian]` "
+             "extra and ≈ 1 min for the first fit.",
     )
-    threshold = st.slider(
-        "Mark a gauging 'uncertain' in the report once it sits this far off the curve",
-        5, 100, int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
-    ) / 100.0
+    method = "bayesian" if method_label == "Bayesian" else "ols"
 
-# ---- advanced -----------------------------------------------------------
-with st.expander("Advanced"):
-    rating_step = st.number_input(
-        "Rating-table step (m)", min_value=0.001, max_value=1.0,
-        value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
-        help="Stage increment of the stage → discharge lookup table.",
-    )
+    if result.is_multi_site:
+        site_pick = st.selectbox("Site", ["(all sites)", *result.sites])
+        site = None if site_pick == "(all sites)" else site_pick
 
-    st.markdown("**Manning cross-section check** *(optional — flood work)*")
-    st.caption(
-        "The rating is fitted only over the stages you've gauged. To read "
-        "discharge at higher stages it must be **extrapolated**, and a power law "
-        "can extrapolate badly. Give a surveyed cross-section (offset + bed "
-        "elevation) and the water-surface slope: the tool builds an independent "
-        "Manning discharge from the channel geometry and flags where the "
-        "extrapolated rating disagrees with it. Skip it for a purely low-flow rating."
-    )
-    sec_file = st.file_uploader("Cross-section CSV (offset + elevation)", type=["csv"], key="xsec")
-    m1, m2, m3 = st.columns(3)
-    section_slope = m1.number_input("Water-surface slope (m/m)", min_value=0.0, value=0.0,
-                                    step=0.0001, format="%.5f")
-    section_n = m2.number_input("Manning's n (0 = calibrate)", min_value=0.0, max_value=0.3,
-                                value=0.0, step=0.005, format="%.3f")
-    section_offset = m3.number_input("Stage → WSE offset (m)", value=0.0, step=0.01, format="%.3f")
+    if method == "bayesian":
+        bayesian_sampler = st.selectbox(
+            "Sampler", ["auto", "nuts", "advi"],
+            format_func=lambda s: {"auto": "Auto (NUTS ≤ 200 gaugings)",
+                                   "nuts": "NUTS — exact, slow",
+                                   "advi": "ADVI — variational, fast"}[s],
+        )
 
-    section_csv = None
-    if sec_file is not None and section_slope > 0:
-        sec_path = Path(tempfile.gettempdir()) / f"rca_xsec_{hashlib.md5(sec_file.getvalue()).hexdigest()}.csv"
-        sec_path.write_bytes(sec_file.getvalue())
-        section_csv = str(sec_path)
-    elif sec_file is not None:
-        st.warning("Enter a positive water-surface slope to run the Manning check.")
+    set_h0 = st.checkbox("Set h₀ by hand",
+                         help="h₀ is the stage of zero flow. Off = estimate it from the "
+                              "low-flow gaugings.")
+    h0 = st.number_input("h₀ (m)", value=0.18, step=0.01, format="%.3f") if set_h0 else None
+
+    fixed_b = None
+    if method == "ols":
+        if st.checkbox("Impose the exponent b",
+                       help="Pin b from the control type (≈1.5 broad-crested weir, "
+                            "≈2–2.5 natural section control, ≈2.5 V-notch) and fit only "
+                            "a — for records too sparse or scattered to identify b on "
+                            "their own. Single-segment only."):
+            fixed_b = st.number_input("b", min_value=0.1, max_value=5.0, value=2.0,
+                                      step=0.1, format="%.2f")
+            if segments != 1:
+                st.caption("↳ forced to a single segment.")
+                segments = 1
+
+    with st.container(horizontal=True, gap="small"):
+        with st.popover("Uncertainty", icon=":material/tune:",
+                        help="Measurement uncertainty and the point-flag threshold"):
+            uncertainty_pct = st.number_input(
+                "Assumed discharge-measurement uncertainty (±%)", min_value=0.5, max_value=100.0,
+                value=float(DEFAULT_DISCHARGE_UNCERTAINTY_PCT), step=0.5,
+                help="Applied to gaugings with no value in a mapped 'Discharge uncertainty "
+                "(±%)' column. Sets the confidence/prediction band width; a *varying* "
+                "mapped column also re-weights the fit point by point.",
+            )
+            threshold = st.slider(
+                "Flag a gauging in the report once it sits this far off the curve",
+                5, 100, int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
+            ) / 100.0
+        with st.popover("Advanced", icon=":material/more_horiz:",
+                        help="Rating-table step and the optional Manning check"):
+            rating_step = st.number_input(
+                "Rating-table step (m)", min_value=0.001, max_value=1.0,
+                value=float(DEFAULT_STAGE_STEP_M), step=0.005, format="%.3f",
+                help="Stage increment of the stage → discharge lookup table.",
+            )
+            st.markdown("**Manning cross-section check** *(optional — flood work)*")
+            st.caption("Checks the extrapolation against a surveyed cross-section and "
+                       "water-surface slope.")
+            sec_file = st.file_uploader("Cross-section CSV (offset + elevation)", type=["csv"], key="xsec")
+            m1, m2, m3 = st.columns(3, gap="small")
+            section_slope = m1.number_input("Slope (m/m)", min_value=0.0, value=0.0,
+                                            step=0.0001, format="%.5f")
+            section_n = m2.number_input("Manning n", min_value=0.0, max_value=0.3,
+                                        value=0.0, step=0.005, format="%.3f")
+            section_offset = m3.number_input("WSE offset (m)", value=0.0, step=0.01, format="%.3f")
+
+            section_csv = None
+            if sec_file is not None and section_slope > 0:
+                sec_path = Path(tempfile.gettempdir()) / f"rca_xsec_{hashlib.md5(sec_file.getvalue()).hexdigest()}.csv"
+                sec_path.write_bytes(sec_file.getvalue())
+                section_csv = str(sec_path)
+            elif sec_file is not None:
+                st.warning("Enter a positive water-surface slope to run the Manning check.")
+
+    st.markdown('<div class="rca-label">View</div>', unsafe_allow_html=True)
+    log_scale = st.toggle("Log–log axes", value=False)
 
 
 # --------------------------------------------------------------------------- #
-# 4 · Run
+# Run
 # --------------------------------------------------------------------------- #
 try:
-    with st.spinner("Sampling the posterior… (~1 min on the first Bayesian fit)"
-                    if method == "bayesian" else "Fitting…"):
+    with main, st.spinner("Sampling the posterior… (~1 min on the first Bayesian fit)"
+                          if method == "bayesian" else "Fitting…"):
         outcome, fit_df, report_bytes, rating_table, rating_csv = fit_and_report(
             file_key, path, sheet, header_row, tuple(sorted(overrides.items())),
             h0, segments, site, threshold, uncertainty_pct, rating_step, method,
@@ -438,180 +475,232 @@ try:
             (section_n or None), float(section_offset or 0.0),
         )
 except ImportError as exc:
-    st.error(str(exc))
+    alert_box.error(str(exc))
     st.stop()
 except Exception as exc:  # noqa: BLE001
-    st.error(f"Fit failed: {exc}")
+    alert_box.error(f"Fit failed: {exc}")
     st.stop()
 
 p = outcome.params
-
-
-# --------------------------------------------------------------------------- #
-# 5 · Rows used
-# --------------------------------------------------------------------------- #
 cleaned = result.cleaned
-
-if result.invalid_count:
-    with st.expander(f"{result.invalid_count} excluded row(s) — why"):
-        cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "validation_notes") if c in cleaned.columns]
-        st.dataframe(_friendly(cleaned.loc[~cleaned["is_valid"], cols]),
-                     width="stretch", hide_index=True)
-if result.warning_count:
-    with st.expander(f"{result.warning_count} kept row(s) with a warning"):
-        cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "warning_notes") if c in cleaned.columns]
-        st.dataframe(_friendly(cleaned.loc[cleaned["has_warning"], cols]),
-                     width="stretch", hide_index=True)
-
-
-# --------------------------------------------------------------------------- #
-# 6 · The rating curve
-# --------------------------------------------------------------------------- #
-st.markdown('<div class="rca-section-label">Stage–discharge fit</div>', unsafe_allow_html=True)
-st.markdown('<div class="rca-section-help">Fitted rating curve with an uncertainty band.</div>', unsafe_allow_html=True)
-if not outcome.is_plausible:
-    st.error("**Not a plausible rating curve** — see the notes below.")
-elif outcome.warnings:
-    st.warning("**Fitted, with warnings.**")
-else:
-    st.success(f"**Rating curve fitted.**   R² = {p['r_squared']:.3f}")
-
 bands = p.get("bands")
 pct = int(round(bands["level"] * 100)) if bands else 95
 r2_label = "weighted R²" if p.get("weighted") else "R²"
 r2_value = p.get("r_squared_weighted") if p.get("weighted") else p["r_squared"]
-
-bits = [f"{p['n_points']} gaugings used"]
-if p["h0_estimated"]:
-    hd = p.get("h0_diagnostics") or {}
-    bits.append("h₀ weakly identified" if hd.get("railed")
-                else f"h₀ estimated ({hd.get('method', '?')})")
-else:
-    bits.append("h₀ set by hand")
-if bands and bands.get("b_ci") and not p.get("b_fixed"):
-    bits.append(f"b {pct}% CI [{bands['b_ci'][0]:.2f}, {bands['b_ci'][1]:.2f}]")
-if bands:
-    unit = "posterior draws" if bands.get("kind") == "posterior" else "bootstrap refits"
-    bits.append(f"±{bands['ci_halfwidth_pct_at_median']:.0f}% band at mid-stage "
-                f"({bands['n_success']} {unit})")
-else:
-    bits.append("bands need ≥ 4 usable gaugings")
-st.caption("  ·  ".join(bits))
-
-if outcome.warnings:
-    st.markdown("\n".join(f"- {w}" for w in outcome.warnings))
-
-log_scale = st.toggle("Log–log axes", value=False)
-with st.container(border=True):
-    plot_col, summary_col = st.columns([3.7, 1.3], gap="large")
-    with plot_col:
-        st.pyplot(
-            make_rating_curve_figure(fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale, fit=p),
-            width="stretch",
-        )
-    with summary_col:
-        st.markdown("#### Curve summary")
-        st.code(p["equation"], language="text")
-        st.metric("Measurements", p["n_points"])
-        st.metric(r2_label, f"{r2_value:.3f}")
-
-with st.expander("How the fit was set up"):
-    if p.get("method") == "bayesian":
-        bx = p.get("bayes", {})
-        st.write(f"**Bayesian** (thodson-usgs `ratingcurve`, PyMC {bx.get('sampler', '?').upper()}). "
-                 + (bx.get("auto_segments_note") or ""))
-    else:
-        st.write("**Least squares** (log–log regression).")
-    if p.get("weighted"):
-        st.write(f"Weighted by the per-point discharge-uncertainty column "
-                 f"(mean ±{p['mean_uncertainty_pct']:.1f}%).")
-    elif p.get("uncertainty_source") == "column":
-        st.write("A discharge-uncertainty column was found but every value is equal — not re-weighted.")
-    else:
-        st.write(f"Discharge uncertainty assumed at ±{p['uncertainty_pct_default']:.1f}% "
-                 f"for every gauging — not re-weighted.")
-    if bands:
-        st.write(
-            f"{pct}% **confidence** band = how well the mean curve is known; "
-            f"{pct}% **prediction** band = where the next gauging would fall. "
-            f"Bands span the gauged stage range only, not the extrapolation."
-        )
-        if bands.get("h0_ci"):
-            src = "posterior" if bands.get("kind") == "posterior" else "re-estimated per replicate"
-            st.write(f"h₀ {pct}% interval [{bands['h0_ci'][0]:.3f}, {bands['h0_ci'][1]:.3f}] m ({src}).")
-        if bands.get("breakpoint_ci"):
-            st.write("Breakpoint interval(s): "
-                     + "; ".join(f"[{lo:.3f}, {hi:.3f}] m" for lo, hi in bands["breakpoint_ci"]))
-
-
-# --------------------------------------------------------------------------- #
-# 7 · Diagnostics
-# --------------------------------------------------------------------------- #
-valid_stage = result.cleaned.loc[result.cleaned["is_valid"], STAGE_M]
-stage_min = float(valid_stage.min()) if not valid_stage.empty else float("nan")
-stage_max = float(valid_stage.max()) if not valid_stage.empty else float("nan")
-with st.container(border=True):
-    st.markdown('<div class="rca-section-label">Diagnostics</div>', unsafe_allow_html=True)
-    st.markdown('<div class="rca-section-help">Key indicators of fit quality and data consistency.</div>', unsafe_allow_html=True)
-    q1, q2, q3, q4 = st.columns(4)
-    q1.metric("Number of measurements", p["n_points"])
-    q2.metric("R² (goodness of fit)", f"{r2_value:.3f}")
-    q3.metric("Warnings", result.warning_count)
-    q4.metric("Stage range (m)", f"{stage_min:.2f} – {stage_max:.2f}")
-
+hd = p.get("h0_diagnostics") or {}
 drift = p.get("drift")
 mc = p.get("manning")
-if drift or mc:
-    st.markdown("#### Quality checks")
-
-if drift:
-    if drift["flag"] == "likely":
-        st.warning(f"⏳ **Rating shift likely.** {drift['message']}")
-    elif drift["flag"] in ("possible", "unassessable"):
-        st.info(f"⏳ {drift['message']}")
-    else:
-        st.success(f"⏳ No temporal drift detected ({drift['date_min']} → {drift['date_max']}).")
-    cp = drift.get("changepoint")
-    if cp is not None:
-        st.caption(
-            f"Most likely changepoint **{cp['date']}** — {cp['shift_pct']:+.0f}% across it "
-            f"(p={cp['p_value']:.3f}; {cp['n_before']} gaugings before, {cp['n_after']} after)."
-        )
-    resid_fig = make_residual_time_figure(fit_df, p)
-    if resid_fig is not None:
-        with st.expander("Residuals over time", expanded=drift["flag"] == "likely"):
-            st.pyplot(resid_fig, width="stretch")
-
-if mc:
-    if mc.get("flag") in ("diverges", "implausible-n"):
-        st.warning(f"📐 {mc['message']}")
-    elif mc.get("flag") in ("check", "unusable"):
-        st.info(f"📐 {mc['message']}")
-    else:
-        st.success(f"📐 {mc['message']}")
-
-
-# --------------------------------------------------------------------------- #
-# 8 · Download
-# --------------------------------------------------------------------------- #
 tag = f"_{site}" if site else ""
-with st.container(border=True):
-    export_col, table_col = st.columns([1, 1], gap="large")
-    with export_col:
-        st.markdown('<div class="rca-section-label">Export report</div>', unsafe_allow_html=True)
-        st.caption("Generate a report with the data, fitted curve, uncertainty, and diagnostics.")
+
+
+# --------------------------------------------------------------------------- #
+# Status line + downloads
+# --------------------------------------------------------------------------- #
+with main:
+    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+        if not outcome.is_plausible:
+            st.error("**Not a plausible rating curve** — see the checks beside the plot.",
+                     icon=":material/error:")
+        elif outcome.warnings:
+            st.warning(f"**Fitted, with warnings** · {r2_label} = {r2_value:.3f} "
+                       f"from {p['n_points']} gaugings", icon=":material/warning:")
+        else:
+            st.success(f"**Rating curve fitted** · {r2_label} = {r2_value:.3f} "
+                       f"from {p['n_points']} gaugings", icon=":material/check_circle:")
         st.download_button(
-            "⬇︎  Export Excel report", data=report_bytes,
+            "Excel report", data=report_bytes, type="primary", icon=":material/download:",
             file_name=f"rating_curve_report{tag}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="content",
+            help="Data, fitted curve, uncertainty, diagnostics and the rating table in one workbook.",
         )
-    with table_col:
-        st.markdown('<div class="rca-section-label">Rating table</div>', unsafe_allow_html=True)
-        st.caption(f"Stage → discharge lookup every {rating_step:g} m.")
         st.download_button(
-            "⬇︎  Download rating table (CSV)", data=rating_csv,
-            file_name=f"rating_table{tag}.csv", mime="text/csv", width="content",
+            "Rating table", data=rating_csv, icon=":material/table:",
+            file_name=f"rating_table{tag}.csv", mime="text/csv",
+            help=f"Stage → discharge lookup every {rating_step:g} m, as CSV.",
         )
-with st.expander(f"Rating table — stage → discharge every {rating_step:g} m ({len(rating_table)} rows)"):
-    st.dataframe(rating_table, width="stretch", hide_index=True)
+
+    st.markdown(f'<div class="rca-eq"><span>Equation</span><code>{html.escape(p["equation"])}</code></div>',
+                unsafe_allow_html=True)
+
+
+# --------------------------------------------------------------------------- #
+# Headline numbers
+# --------------------------------------------------------------------------- #
+with main:
+    valid_stage = cleaned.loc[cleaned["is_valid"], STAGE_M]
+    stage_min = float(valid_stage.min()) if not valid_stage.empty else float("nan")
+    stage_max = float(valid_stage.max()) if not valid_stage.empty else float("nan")
+    quiet = dict(delta_color="off", delta_arrow="off")
+
+    tiles = st.columns(8 if not p.get("is_segmented") else 7, gap="small")
+    t = iter(tiles)
+    if p.get("is_segmented"):
+        breaks = ", ".join(f"{x:.3f}" for x in p.get("breakpoints") or [])
+        next(t).metric("Segments", p["n_segments"], delta=f"breaks at {breaks} m" if breaks else None,
+                       help="Per-segment a and b are listed under Fit details.", **quiet)
+    else:
+        next(t).metric("a", f"{p['a']:.4f}", help="Coefficient in Q = a·(H − h₀)^b.")
+        if p.get("b_fixed"):
+            b_note = "imposed"
+        elif bands and bands.get("b_ci"):
+            b_note = f"{pct}% CI {bands['b_ci'][0]:.2f}–{bands['b_ci'][1]:.2f}"
+        else:
+            b_note = None
+        next(t).metric("b", f"{p['b']:.3f}", delta=b_note, help="Exponent in Q = a·(H − h₀)^b.", **quiet)
+    if not p["h0_estimated"]:
+        h0_note, h0_help = "set by hand", "Stage of zero flow, set by hand."
+    else:
+        h0_note = "weakly identified" if hd.get("railed") else "estimated"
+        h0_help = f"Stage of zero flow, estimated from the low-flow gaugings ({hd.get('method', '?')} method)."
+    next(t).metric("h₀ (m)", f"{p['h0']:.3f}", delta=h0_note,
+                   delta_color="orange" if hd.get("railed") else "off", delta_arrow="off",
+                   help=h0_help)
+    next(t).metric(r2_label, f"{r2_value:.3f}")
+    next(t).metric("Valid rows", result.valid_count,
+                   delta=f"{result.invalid_count} excluded" if result.invalid_count else None,
+                   delta_color="orange" if result.invalid_count else "off", delta_arrow="off")
+    next(t).metric("Warnings (kept)", result.warning_count,
+                   help="Rows kept in the fit but flagged — see the Row warnings tab.")
+    if bands:
+        unit = "draws" if bands.get("kind") == "posterior" else "refits"
+        next(t).metric("Band at mid-stage", f"±{bands['ci_halfwidth_pct_at_median']:.0f}%",
+                       delta=f"{pct}% CI · {bands['n_success']} {unit}", **quiet)
+    else:
+        next(t).metric("Band at mid-stage", "—", delta="needs ≥ 4 gaugings", **quiet)
+    next(t).metric("Stage range (m)", f"{stage_min:.2f}–{stage_max:.2f}")
+
+
+# --------------------------------------------------------------------------- #
+# Plot beside the quality checks
+# --------------------------------------------------------------------------- #
+with main:
+    plot_col, check_col = st.columns([2.6, 1], gap="small")
+    with plot_col, st.container(border=True, key="rca-plot"):
+        st.pyplot(
+            make_rating_curve_figure(fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale,
+                                     fit=p, figure=Figure(figsize=(7.6, 3.9), dpi=130)),
+            width="stretch",
+        )
+
+    checks: list[str] = []
+    ambiguous = base_report.mapping.ambiguous
+    for canonical, (picked, *others) in ambiguous.items():
+        checks.append(_check("warn", f"{FIELD_LABELS.get(canonical, canonical)} matched "
+                                     f"{len(others) + 1} columns",
+                             f"Using {picked}, not {', '.join(others)}. Change it under Columns."))
+    if not ambiguous:
+        checks.append(_check("ok", "Columns mapped", "Date, stage and discharge found."))
+
+    if result.invalid_count:
+        checks.append(_check("warn", f"{result.invalid_count} row(s) excluded",
+                             "Reasons are in the Excluded rows tab."))
+    else:
+        checks.append(_check("ok", f"All {result.valid_count} rows usable"))
+    if result.warning_count:
+        checks.append(_check("info", f"{result.warning_count} row(s) kept with a warning",
+                             "Drawn as orange squares; details in the Row warnings tab."))
+
+    level = "bad" if not outcome.is_plausible else "warn"
+    for w in outcome.warnings:
+        checks.append(_check(level, "Fit warning", w))
+    if not outcome.warnings:
+        checks.append(_check("ok", "No fit warnings"))
+
+    if hd.get("railed"):
+        checks.append(_check("warn", "h₀ weakly identified",
+                             "Few low-flow gaugings pin it down — consider setting it by hand."))
+
+    if drift:
+        if drift["flag"] == "likely":
+            checks.append(_check("warn", "Rating shift likely", drift["message"]))
+        elif drift["flag"] in ("possible", "unassessable"):
+            checks.append(_check("info", "Drift: " + drift["flag"], drift["message"]))
+        else:
+            checks.append(_check("ok", "No temporal drift", f"{drift['date_min']} → {drift['date_max']}"))
+        cp = drift.get("changepoint")
+        if cp is not None:
+            checks.append(_check("info", f"Most likely changepoint {cp['date']}",
+                                 f"{cp['shift_pct']:+.0f}% across it (p={cp['p_value']:.3f}; "
+                                 f"{cp['n_before']} before, {cp['n_after']} after)."))
+
+    if mc:
+        if mc.get("flag") in ("diverges", "implausible-n"):
+            checks.append(_check("warn", "Manning check", mc["message"]))
+        elif mc.get("flag") in ("check", "unusable"):
+            checks.append(_check("info", "Manning check", mc["message"]))
+        else:
+            checks.append(_check("ok", "Manning check", mc["message"]))
+
+    with check_col, st.container(border=True, key="rca-checks"):
+        st.markdown('<div class="rca-label">Checks</div>' + "".join(checks), unsafe_allow_html=True)
+
+
+# --------------------------------------------------------------------------- #
+# Detail tabs
+# --------------------------------------------------------------------------- #
+with main:
+    tab_names = ["Rating table", "Residuals over time", "Fit details"]
+    if result.invalid_count:
+        tab_names.append(f"Excluded rows ({result.invalid_count})")
+    if result.warning_count:
+        tab_names.append(f"Row warnings ({result.warning_count})")
+    tabs = dict(zip(tab_names, st.tabs(
+        tab_names, default="Residuals over time" if drift and drift["flag"] == "likely" else None,
+    )))
+
+    with tabs["Rating table"]:
+        st.caption(f"Stage → discharge every {rating_step:g} m · {len(rating_table)} rows. "
+                   "Change the step under Advanced.")
+        st.dataframe(rating_table, width="stretch", height=300, hide_index=True)
+
+    with tabs["Residuals over time"]:
+        resid_fig = make_residual_time_figure(fit_df, p, figure=Figure(figsize=(10, 3.0), dpi=110))
+        if resid_fig is not None:
+            st.pyplot(resid_fig, width="stretch")
+        else:
+            st.caption("The gaugings carry no usable dates, so residuals can't be plotted over time.")
+
+    with tabs["Fit details"]:
+        if p.get("method") == "bayesian":
+            bx = p.get("bayes", {})
+            st.write(f"**Bayesian** (thodson-usgs `ratingcurve`, PyMC {bx.get('sampler', '?').upper()}). "
+                     + (bx.get("auto_segments_note") or ""))
+        else:
+            st.write("**Least squares** (log–log regression).")
+        if p.get("weighted"):
+            st.write(f"Weighted by the per-point discharge-uncertainty column "
+                     f"(mean ±{p['mean_uncertainty_pct']:.1f}%).")
+        elif p.get("uncertainty_source") == "column":
+            st.write("A discharge-uncertainty column was found but every value is equal — not re-weighted.")
+        else:
+            st.write(f"Discharge uncertainty assumed at ±{p['uncertainty_pct_default']:.1f}% "
+                     f"for every gauging — not re-weighted.")
+        if bands:
+            st.write(
+                f"{pct}% **confidence** band = how well the mean curve is known; "
+                f"{pct}% **prediction** band = where the next gauging would fall. "
+                f"Bands span the gauged stage range only, not the extrapolation."
+            )
+            if bands.get("h0_ci"):
+                src = "posterior" if bands.get("kind") == "posterior" else "re-estimated per replicate"
+                st.write(f"h₀ {pct}% interval [{bands['h0_ci'][0]:.3f}, {bands['h0_ci'][1]:.3f}] m ({src}).")
+            if bands.get("breakpoint_ci"):
+                st.write("Breakpoint interval(s): "
+                         + "; ".join(f"[{lo:.3f}, {hi:.3f}] m" for lo, hi in bands["breakpoint_ci"]))
+        if p.get("is_segmented") and p.get("segments"):
+            seg = pd.DataFrame(p["segments"]).rename(columns={
+                "a": "a", "b": "b", "r_squared": "R²", "n_points": "Gaugings",
+                "stage_min": "From stage (m)", "stage_max": "To stage (m)"})
+            seg.index = [f"Segment {i + 1}" for i in range(len(seg))]
+            st.dataframe(seg, width="content")
+
+    if result.invalid_count:
+        with tabs[f"Excluded rows ({result.invalid_count})"]:
+            cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "validation_notes") if c in cleaned.columns]
+            st.dataframe(_friendly(cleaned.loc[~cleaned["is_valid"], cols]),
+                         width="stretch", height=300, hide_index=True)
+    if result.warning_count:
+        with tabs[f"Row warnings ({result.warning_count})"]:
+            cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "warning_notes") if c in cleaned.columns]
+            st.dataframe(_friendly(cleaned.loc[cleaned["has_warning"], cols]),
+                         width="stretch", height=300, hide_index=True)

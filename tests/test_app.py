@@ -81,3 +81,19 @@ def test_app_impose_exponent_checkbox():
     b_metric = next(m for m in at.metric if m.label == "b")
     assert float(b_metric.value) == pytest.approx(2.0)
     assert b_metric.delta == "imposed"
+
+
+@pytest.mark.skipif(not DATASET.exists(), reason="bundled dataset missing")
+def test_app_segmented_fit_shows_segment_tile_and_detail_tabs():
+    at = _app().run()
+    at.file_uploader[0].upload("data.xlsx", DATASET.read_bytes(), XLSX_MIME)
+    at.run()
+
+    shape = next(s for s in at.selectbox if s.label == "Curve shape")
+    shape.set_value(2).run()
+
+    assert not at.exception
+    metrics = {m.label: m for m in at.metric}
+    assert metrics["Segments"].value == "2"
+    assert "a" not in metrics  # per-segment a/b live under Fit details instead
+    assert {t.label for t in at.tabs} >= {"Rating table", "Residuals over time", "Fit details"}
