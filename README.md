@@ -14,13 +14,13 @@ stage–discharge rating curves.**
 
 </div>
 
+![Rating Curve Automater workflow: upload, fit, and change parameters](docs/images/rating-curve-automater-workflow.gif)
+
 Rating Curve Automater cleans and validates field measurements, fits rating
 curves, reports uncertainty and drift diagnostics, and exports an Excel report.
 
 > Provisional software: review curves, flags, and extrapolations as a qualified
 > hydrographer before operational use.
-
-![Rating Curve Automater interface preview](docs/images/rating-curve-automater-ui-preview.png)
 
 ## Getting started
 
