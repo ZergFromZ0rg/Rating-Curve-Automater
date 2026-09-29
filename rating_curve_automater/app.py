@@ -46,26 +46,29 @@ st.markdown(
         --rca-green: #45d39a;
     }
     .stApp { background: var(--rca-bg); color: #eef5ff; }
-    .block-container { max-width: 1180px; padding-top: 3rem; padding-bottom: 4rem; }
+    .block-container { max-width: 1280px; padding-top: 1.35rem; padding-bottom: 1.5rem; }
+    [data-testid="stVerticalBlock"] { gap: .52rem; }
+    [data-testid="stHorizontalBlock"] { gap: .8rem; }
     h1, h2, h3 { letter-spacing: -0.03em; }
-    h1 { font-size: 2.55rem !important; margin-bottom: 0.25rem !important; }
+    h1 { font-size: 2.15rem !important; margin-bottom: 0.15rem !important; }
     h2 { font-size: 1.45rem !important; }
     h3 { font-size: 1.15rem !important; }
     p, label, .stCaption, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
-    .rca-hero { display:flex; justify-content:space-between; gap:2rem; align-items:flex-start; margin-bottom:1.7rem; }
+    .rca-hero { display:flex; justify-content:space-between; gap:2rem; align-items:flex-start; margin-bottom:.85rem; }
     .rca-hero-copy { max-width: 760px; }
     .rca-kicker { color: var(--rca-blue); font-size:0.82rem; font-weight:700; letter-spacing:0.13em; text-transform:uppercase; margin-bottom:0.45rem; }
     .rca-subtitle { color:#aebed0; font-size:1.08rem; line-height:1.45; margin:0; }
-    .rca-promise { min-width:185px; border:1px solid var(--rca-border); border-radius:8px; background:var(--rca-panel); padding:0.85rem 1rem 0.85rem 1.1rem; color:#c6d2e2; line-height:1.55; }
+    .rca-promise { min-width:160px; border:1px solid var(--rca-border); border-radius:8px; background:var(--rca-panel); padding:0.6rem .8rem 0.6rem .9rem; color:#c6d2e2; line-height:1.4; }
     .rca-promise span { display:block; border-left:2px solid var(--rca-blue); padding-left:.75rem; }
     .rca-section-label { color:#f3f7fd; font-size:1.35rem; font-weight:700; margin-bottom:.15rem; }
-    .rca-section-help { color:var(--rca-muted); margin-bottom:1rem; }
+    .rca-section-help { color:var(--rca-muted); margin-bottom:.55rem; }
     .rca-check { color:#b9c8d8; margin:.48rem 0; }
     .rca-check::first-letter { color:var(--rca-green); }
-    [data-testid="stVerticalBlockBorderWrapper"] { background:rgba(23,34,48,.88); border-color:var(--rca-border); border-radius:14px; }
+    [data-testid="stVerticalBlockBorderWrapper"] { background:rgba(23,34,48,.88); border-color:var(--rca-border); border-radius:10px; }
+    [data-testid="stVerticalBlockBorderWrapper"] > div { padding-top:.65rem; padding-bottom:.65rem; }
     [data-testid="stFileUploader"] { background:rgba(29,42,57,.9); border:1px dashed #7389a1; border-radius:10px; padding:.7rem; }
     [data-testid="stFileUploaderDropzone"] { background:transparent; }
-    [data-testid="stMetric"] { background:rgba(29,42,57,.9); border:1px solid var(--rca-border); border-radius:9px; padding:.75rem .9rem; }
+    [data-testid="stMetric"] { background:rgba(29,42,57,.9); border:1px solid var(--rca-border); border-radius:7px; padding:.45rem .65rem; }
     [data-testid="stMetricLabel"] { color:#aebed0; }
     [data-testid="stMetricValue"] { color:#f1f6fd; }
     .stButton > button, .stDownloadButton > button { border-radius:8px; border:1px solid #3977c4; background:#2478e5; color:white; font-weight:650; min-height:2.55rem; }
@@ -447,14 +450,7 @@ p = outcome.params
 # --------------------------------------------------------------------------- #
 # 5 · Rows used
 # --------------------------------------------------------------------------- #
-st.divider()
 cleaned = result.cleaned
-used = result.valid_count
-total = used + result.invalid_count
-d1, d2, d3 = st.columns(3)
-d1.metric("Valid rows", used, help=f"{used} of {total} rows go into the fit.")
-d2.metric("Invalid (excluded)", result.invalid_count)
-d3.metric("Warnings (kept)", result.warning_count)
 
 if result.invalid_count:
     with st.expander(f"{result.invalid_count} excluded row(s) — why"):
