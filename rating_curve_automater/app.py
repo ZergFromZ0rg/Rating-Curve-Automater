@@ -46,20 +46,18 @@ st.markdown(
         --rca-green: #45d39a;
     }
     .stApp { background: var(--rca-bg); color: #eef5ff; }
-    .block-container { max-width: 1280px; padding-top: 1.35rem; padding-bottom: 1.5rem; }
+    .block-container { max-width: 1280px; padding-top: 1.65rem; padding-bottom: 1rem; }
     [data-testid="stVerticalBlock"] { gap: .52rem; }
     [data-testid="stHorizontalBlock"] { gap: .8rem; }
     h1, h2, h3 { letter-spacing: -0.03em; }
-    h1 { font-size: 2.15rem !important; margin-bottom: 0.15rem !important; }
+    h1 { font-size: 1.9rem !important; margin-bottom: 0.05rem !important; }
     h2 { font-size: 1.45rem !important; }
     h3 { font-size: 1.15rem !important; }
     p, label, .stCaption, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
-    .rca-hero { display:flex; justify-content:space-between; gap:1.25rem; align-items:flex-start; margin-bottom:.85rem; flex-wrap:wrap; }
-    .rca-hero-copy { max-width: 760px; min-width:0; flex:1 1 520px; }
+    .rca-hero { margin-bottom:.5rem; }
+    .rca-hero-copy { max-width: 820px; }
     .rca-kicker { color: var(--rca-blue); font-size:0.82rem; font-weight:700; letter-spacing:0.13em; text-transform:uppercase; margin-bottom:0.45rem; }
     .rca-subtitle { color:#aebed0; font-size:1.08rem; line-height:1.45; margin:0; }
-    .rca-promise { min-width:160px; border:1px solid var(--rca-border); border-radius:8px; background:var(--rca-panel); padding:0.6rem .8rem 0.6rem .9rem; color:#c6d2e2; line-height:1.4; }
-    .rca-promise span { display:block; border-left:2px solid var(--rca-blue); padding-left:.75rem; }
     .rca-section-label { color:#f3f7fd; font-size:1.35rem; font-weight:700; margin-bottom:.15rem; }
     .rca-section-help { color:var(--rca-muted); margin-bottom:.55rem; }
     .rca-check { color:#b9c8d8; margin:.48rem 0; }
@@ -71,14 +69,13 @@ st.markdown(
     [data-testid="stMetric"] { background:rgba(29,42,57,.9); border:1px solid var(--rca-border); border-radius:7px; padding:.45rem .65rem; }
     [data-testid="stMetricLabel"] { color:#aebed0; }
     [data-testid="stMetricValue"] { color:#f1f6fd; }
-    .stButton > button, .stDownloadButton > button { border-radius:8px; border:1px solid #3977c4; background:#2478e5; color:white; font-weight:650; min-height:2.55rem; }
+    .stButton > button, .stDownloadButton > button { width:auto !important; min-width:0 !important; border-radius:6px; border:1px solid #3977c4; background:#2478e5; color:white; font-weight:650; min-height:2.25rem; padding:.35rem .8rem; }
     .stButton > button:hover, .stDownloadButton > button:hover { border-color:#7eb9ff; background:#3188f4; color:white; }
     [data-testid="stExpander"] { border-color:var(--rca-border); background:rgba(18,28,40,.65); }
     hr { border-color:var(--rca-border); }
     @media (max-width: 760px) {
         .block-container { padding-left: .8rem; padding-right: .8rem; }
-        h1 { font-size: 1.8rem !important; }
-        .rca-promise { width:100%; }
+        h1 { font-size: 1.65rem !important; }
     }
     </style>
     """,
@@ -163,11 +160,9 @@ st.markdown(
     """
     <div class="rca-hero">
       <div class="rca-hero-copy">
-        <div class="rca-kicker">Field measurements → reliable rating curves</div>
         <h1>Rating Curve Automater</h1>
-        <p class="rca-subtitle">Upload your data, fit with uncertainty, and export a report.</p>
+        <p class="rca-subtitle">Upload measurements, fit a rating curve, and export the results.</p>
       </div>
-      <div class="rca-promise"><span>Faster analysis<br>More insight<br>Stronger decisions</span></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -609,14 +604,14 @@ with st.container(border=True):
             "⬇︎  Export Excel report", data=report_bytes,
             file_name=f"rating_curve_report{tag}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch",
+            width="content",
         )
     with table_col:
         st.markdown('<div class="rca-section-label">Rating table</div>', unsafe_allow_html=True)
         st.caption(f"Stage → discharge lookup every {rating_step:g} m.")
         st.download_button(
             "⬇︎  Download rating table (CSV)", data=rating_csv,
-            file_name=f"rating_table{tag}.csv", mime="text/csv", width="stretch",
+            file_name=f"rating_table{tag}.csv", mime="text/csv", width="content",
         )
 with st.expander(f"Rating table — stage → discharge every {rating_step:g} m ({len(rating_table)} rows)"):
     st.dataframe(rating_table, width="stretch", hide_index=True)
