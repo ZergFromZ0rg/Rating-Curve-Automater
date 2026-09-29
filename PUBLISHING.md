@@ -37,10 +37,8 @@ is stored.
 **1. Prep the working tree (commit + push, wait for CI green).**
 
 - Bump `project.version` in `pyproject.toml`.
-- Changelog lives in **`README.md` under `## Changelog`** (there is no
-  `CHANGELOG.md`). Rename the **`**Unreleased**`** block to `**vX.Y.Z**`
-  `(current release)` with today's date, and drop `(current release)` from the
-  previous version.
+- Changelog lives in **`CHANGELOG.md`**. Add a dated `**vX.Y.Z**` section for
+  each release and link it from the README when the release is published.
 - If any dependency floor moved, say so in the changelog and check
   `requirements.txt` / `environment.yml` don't pin it lower.
 - Run the **full** suite locally *with the `[bayesian]` extra* — CI skips those
