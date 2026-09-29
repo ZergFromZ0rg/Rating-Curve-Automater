@@ -34,7 +34,7 @@ def make_rating_curve_figure(
     stage = working[STAGE_M].to_numpy(dtype=float)
     observed = working[DISCHARGE_CMS].to_numpy(dtype=float)
 
-    fig = figure if figure is not None else Figure(figsize=(8.8, 4.8), dpi=130)
+    fig = figure if figure is not None else Figure(figsize=(8.8, 3.65), dpi=130)
     fig.clear()
     ax = fig.add_subplot(111)
     fig.patch.set_facecolor("#172230")
