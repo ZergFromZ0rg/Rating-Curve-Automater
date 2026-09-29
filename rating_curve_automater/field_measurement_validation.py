@@ -1,3 +1,10 @@
+"""Validate and normalize field measurements before curve fitting.
+
+This module owns row-level quality flags and the CSV-facing validation command;
+it deliberately preserves warnings so questionable but usable gaugings remain
+visible to the analyst.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -9,12 +9,11 @@ description = "Build a stage-discharge rating curve from messy field-gauging spr
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Boris Sapojnikov" }]
-license = { file = "LICENSE" }
+license = "BSD-3-Clause"
 keywords = ["hydrology", "rating curve", "stage discharge", "streamflow", "hydrometry"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -48,7 +47,7 @@ dev = ["pytest>=8.0"]
 rca = "rating_curve_automater.cli:main"
 
 [tool.setuptools]
-packages = ["rating_curve_automater"]
+packages = ["rating_curve_automater", "rating_curve_automater.data"]
 
 [tool.setuptools.package-data]
 rating_curve_automater = ["data/*.xlsx"]

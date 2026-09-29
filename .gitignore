@@ -3,10 +3,26 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 .venv/
 venv/
 build/
 dist/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and local runtime output
+*.log
+*.tmp
+*.swp
+benchmarks/results/*.log
 
 # Generated artifacts
 cleaned_measurements.csv

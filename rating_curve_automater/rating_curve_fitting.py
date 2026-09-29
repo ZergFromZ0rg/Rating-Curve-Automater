@@ -1,3 +1,9 @@
+"""Fit single- and multi-segment stage–discharge rating curves.
+
+The public fitting functions return plain dictionaries for compatibility with
+the CLI, Streamlit app, and Excel report layers.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
