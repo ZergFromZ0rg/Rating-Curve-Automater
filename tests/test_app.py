@@ -97,3 +97,33 @@ def test_app_segmented_fit_shows_segment_tile_and_detail_tabs():
     assert metrics["Segments"].value == "2"
     assert "a" not in metrics  # per-segment a/b live under Fit details instead
     assert {t.label for t in at.tabs} >= {"Rating table", "Residuals over time", "Fit details"}
+
+
+@pytest.mark.parametrize("sheets, expect_concern", [(["Site A", "Site B"], True), (["Gaugings"], False)])
+def test_app_columns_button_and_checks_agree(tmp_path, sheets, expect_concern):
+    # Two sheets that both hold a full table -> the sheet pick is a best guess.
+    n = 30
+    h = np.linspace(0.3, 1.4, n)
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2020-01-01", periods=n, freq="W"),
+        "Stage (m)": h,
+        "Discharge (m3/s)": 1.1 * (h - 0.1) ** 1.7,
+    })
+    path = tmp_path / "book.xlsx"
+    with pd.ExcelWriter(path) as writer:
+        for name in sheets:
+            frame.to_excel(writer, sheet_name=name, index=False)
+
+    at = _app().run()
+    at.file_uploader[0].upload("book.xlsx", path.read_bytes(), XLSX_MIME)
+    at.run()
+
+    assert not at.exception
+    labels = [p.proto.popover.label for p in at.get("popover")]
+    checks = next(m.value for m in at.markdown if 'class="rca-label">Checks' in m.value)
+    if expect_concern:
+        assert "Columns — check" in labels
+        assert "is a best guess" in checks and "Columns mapped" not in checks
+    else:
+        assert "Columns" in labels and "Columns — check" not in labels
+        assert "Columns mapped" in checks and "best guess" not in checks

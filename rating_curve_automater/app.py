@@ -104,6 +104,8 @@ st.markdown(
     [data-testid="stMetricValue"] { font-size:1.2rem; line-height:1.3; font-weight:600; color:#f1f6fd; }
     [data-testid="stMetricDelta"] { font-size:.72rem; max-width:100%; }
     [data-testid="stMetricDelta"] p, [data-testid="stMetricLabel"] p { white-space:normal; overflow:visible; }
+    [data-testid="stMetricLabel"] p { overflow-wrap:normal; word-break:normal; }
+    .st-key-rca-tiles > div { flex: 1 1 7.5rem; min-width: 7.5rem; }
     .rca-eq { display:flex; gap:.6rem; align-items:baseline; font-size:.82rem; color:var(--rca-muted); }
     .rca-eq code { color:#dbe6f3; background:var(--rca-panel-2); border:1px solid var(--rca-border); border-radius:5px; padding:.1rem .45rem; white-space:normal; }
 
@@ -199,6 +201,24 @@ def _friendly(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns={k: v for k, v in FIELD_LABELS.items() if k in df.columns})
 
 
+def _column_concerns(rep) -> list[tuple[str, str]]:
+    """``(title, detail)`` for each loader choice a human should double-check.
+    Drives the Columns button label, the notes inside it and the Checks list,
+    so all three always agree."""
+    concerns = []
+    if not rep.sheet_confident:
+        others = [s for s in rep.available_sheets if s != rep.sheet_name]
+        more = f" +{len(others) - 3} more" if len(others) > 3 else ""
+        concerns.append((f"Sheet “{rep.sheet_name}” is a best guess",
+                         f"Other sheets: {', '.join(others[:3])}{more}." if others else ""))
+    if not rep.header_confident:
+        concerns.append((f"Header row {rep.header_row + 1} is a best guess", ""))
+    for canonical, (picked, *others) in rep.mapping.ambiguous.items():
+        concerns.append((f"{FIELD_LABELS.get(canonical, canonical)} matched {len(others) + 1} columns",
+                         f"Using {picked}, not {', '.join(others)}."))
+    return concerns
+
+
 _CHECK_ICON = {"ok": "✓", "warn": "!", "bad": "✕", "info": "i"}
 
 
@@ -277,6 +297,7 @@ except Exception as exc:  # noqa: BLE001
     main.error(f"Could not read the file: {exc}")
     st.stop()
 
+col_concerns = _column_concerns(pre)
 alert_box = main.container()
 with panel:
     st.markdown(
@@ -285,8 +306,8 @@ with panel:
     )
     if pre.mapping.is_complete:
         map_box = st.popover(
-            "Columns — check" if pre.needs_review else "Columns",
-            icon=":material/warning:" if pre.needs_review else ":material/table_view:",
+            "Columns — check" if col_concerns else "Columns",
+            icon=":material/warning:" if col_concerns else ":material/table_view:",
             width="stretch",
             help="Sheet, header row, and which column holds each field.",
         )
@@ -314,10 +335,8 @@ with map_box:
     st.caption("Blank = auto-detect. Set the starred fields if they're wrong.")
     options = [AUTO, *base_report.source_columns]
 
-    for canonical, cands in base_report.mapping.ambiguous.items():
-        picked, *others = cands
-        st.caption(f"⚠️ **{FIELD_LABELS.get(canonical, canonical)}** matched more than one "
-                   f"column — using **{picked}**, not {', '.join(others)}.")
+    for title, detail in _column_concerns(base_report):
+        st.caption(f"⚠️ **{title}**" + (f" — {detail}" if detail else ""))
     conv = [f"{FIELD_LABELS.get(k, k)} converted from {u.label}"
             for k, u in (base_report.units or {}).items()
             if getattr(u, "detected", False) and getattr(u, "factor", 1.0) != 1.0]
@@ -532,42 +551,42 @@ with main:
     stage_max = float(valid_stage.max()) if not valid_stage.empty else float("nan")
     quiet = dict(delta_color="off", delta_arrow="off")
 
-    tiles = st.columns(8 if not p.get("is_segmented") else 7, gap="small")
-    t = iter(tiles)
+    # Wraps to a second row rather than squeezing when the window is narrow.
+    tiles = st.container(horizontal=True, wrap=True, gap="small", key="rca-tiles")
     if p.get("is_segmented"):
         breaks = ", ".join(f"{x:.3f}" for x in p.get("breakpoints") or [])
-        next(t).metric("Segments", p["n_segments"], delta=f"breaks at {breaks} m" if breaks else None,
+        tiles.metric("Segments", p["n_segments"], delta=f"breaks at {breaks} m" if breaks else None,
                        help="Per-segment a and b are listed under Fit details.", **quiet)
     else:
-        next(t).metric("a", f"{p['a']:.4f}", help="Coefficient in Q = a·(H − h₀)^b.")
+        tiles.metric("a", f"{p['a']:.4f}", help="Coefficient in Q = a·(H − h₀)^b.")
         if p.get("b_fixed"):
             b_note = "imposed"
         elif bands and bands.get("b_ci"):
             b_note = f"{pct}% CI {bands['b_ci'][0]:.2f}–{bands['b_ci'][1]:.2f}"
         else:
             b_note = None
-        next(t).metric("b", f"{p['b']:.3f}", delta=b_note, help="Exponent in Q = a·(H − h₀)^b.", **quiet)
+        tiles.metric("b", f"{p['b']:.3f}", delta=b_note, help="Exponent in Q = a·(H − h₀)^b.", **quiet)
     if not p["h0_estimated"]:
         h0_note, h0_help = "set by hand", "Stage of zero flow, set by hand."
     else:
         h0_note = "weakly identified" if hd.get("railed") else "estimated"
         h0_help = f"Stage of zero flow, estimated from the low-flow gaugings ({hd.get('method', '?')} method)."
-    next(t).metric("h₀ (m)", f"{p['h0']:.3f}", delta=h0_note,
+    tiles.metric("h₀ (m)", f"{p['h0']:.3f}", delta=h0_note,
                    delta_color="orange" if hd.get("railed") else "off", delta_arrow="off",
                    help=h0_help)
-    next(t).metric(r2_label, f"{r2_value:.3f}")
-    next(t).metric("Valid rows", result.valid_count,
+    tiles.metric(r2_label, f"{r2_value:.3f}")
+    tiles.metric("Valid rows", result.valid_count,
                    delta=f"{result.invalid_count} excluded" if result.invalid_count else None,
                    delta_color="orange" if result.invalid_count else "off", delta_arrow="off")
-    next(t).metric("Warnings (kept)", result.warning_count,
+    tiles.metric("Warnings (kept)", result.warning_count,
                    help="Rows kept in the fit but flagged — see the Row warnings tab.")
     if bands:
         unit = "draws" if bands.get("kind") == "posterior" else "refits"
-        next(t).metric("Band at mid-stage", f"±{bands['ci_halfwidth_pct_at_median']:.0f}%",
+        tiles.metric("Band at mid-stage", f"±{bands['ci_halfwidth_pct_at_median']:.0f}%",
                        delta=f"{pct}% CI · {bands['n_success']} {unit}", **quiet)
     else:
-        next(t).metric("Band at mid-stage", "—", delta="needs ≥ 4 gaugings", **quiet)
-    next(t).metric("Stage range (m)", f"{stage_min:.2f}–{stage_max:.2f}")
+        tiles.metric("Band at mid-stage", "—", delta="needs ≥ 4 gaugings", **quiet)
+    tiles.metric("Stage range (m)", f"{stage_min:.2f}–{stage_max:.2f}")
 
 
 # --------------------------------------------------------------------------- #
@@ -583,12 +602,9 @@ with main:
         )
 
     checks: list[str] = []
-    ambiguous = base_report.mapping.ambiguous
-    for canonical, (picked, *others) in ambiguous.items():
-        checks.append(_check("warn", f"{FIELD_LABELS.get(canonical, canonical)} matched "
-                                     f"{len(others) + 1} columns",
-                             f"Using {picked}, not {', '.join(others)}. Change it under Columns."))
-    if not ambiguous:
+    for title, detail in col_concerns:
+        checks.append(_check("warn", title, f"{detail} Change it under Columns.".strip()))
+    if not col_concerns:
         checks.append(_check("ok", "Columns mapped", "Date, stage and discharge found."))
 
     if result.invalid_count:
