@@ -5,8 +5,11 @@
 [![Tests](https://github.com/ZergFromZ0rg/Rating-Curve-Automater/actions/workflows/test.yml/badge.svg)](https://github.com/ZergFromZ0rg/Rating-Curve-Automater/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
-**Rating Curve Automater turns field-gauging spreadsheets into reviewable,
-uncertainty-aware stage–discharge rating curves.**
+## About
+
+Rating Curve Automater is a Python toolkit for turning field measurements into
+validated, uncertainty-aware stage–discharge rating curves and reviewable
+Excel reports.
 
 It validates messy measurements, fits single or piecewise power-law curves,
 reports uncertainty and drift diagnostics, and exports an Excel report.
