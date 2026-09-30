@@ -54,6 +54,9 @@ st.markdown(
         --rca-focus: #9ccbff;
     }
     .stApp { background: var(--rca-bg); color: var(--rca-text); }
+    .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricValue"], .stApp [data-testid="stMetricDelta"] {
+        font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    }
     header[data-testid="stHeader"] { background: transparent; }
     [data-testid="stAppDeployButton"] { display: none; }
     .block-container { max-width: 1680px; padding: .8rem 1.25rem 1.5rem; }
@@ -66,9 +69,8 @@ st.markdown(
     [data-testid="stMarkdownContainer"]:has(> .rca-title, > .rca-label, > .rca-file, > .rca-eq, > .rca-empty) { margin-bottom: 0; }
 
     /* title bar — leaves room for Streamlit's menu on the right */
-    .rca-title { display:flex; align-items:baseline; flex-wrap:wrap; gap:.2rem .75rem; margin:0 6rem .2rem 0; }
-    .rca-title h1 { font-size:1.3rem !important; line-height:1.3 !important; margin:0 !important; padding:0 !important; letter-spacing:-.02em; }
-    .rca-title span { color:var(--rca-muted); font-size:.85rem; }
+    .rca-title { display:flex; align-items:baseline; justify-content:center; flex-wrap:wrap; gap:.2rem .75rem; margin:0 0 .6rem; text-align:center; }
+    .rca-title h1 { font-size:1.75rem !important; line-height:1.2 !important; font-weight:800 !important; margin:0 !important; padding:0 !important; letter-spacing:-.03em; }
 
     /* panels */
     .st-key-rca-panel, .st-key-rca-plot, .st-key-rca-checks, .st-key-rca-colmap-inline {
@@ -78,13 +80,28 @@ st.markdown(
     .rca-label { color:var(--rca-muted); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; margin:.3rem 0 -.2rem; }
     .rca-file { color:var(--rca-muted); font-size:.78rem; }
 
-    /* file uploader: a slim drop strip instead of a tall box */
-    [data-testid="stFileUploaderDropzone"] { background: var(--rca-panel-2); border:1px dashed #5d7590; border-radius:6px; padding:.45rem .6rem; }
-    [data-testid="stFileUploaderDropzoneInstructions"] small { font-size:.72rem; }
+    /* file uploader: inviting without taking over the working surface */
+    [data-testid="stFileUploaderDropzone"] { display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--rca-panel-2); border:1px dashed #6f8dab; border-radius:8px; padding:.7rem; transition:border-color .15s ease, background .15s ease; }
+    [data-testid="stFileUploaderDropzone"]:hover { background:#223246; border-color:var(--rca-blue); }
+    [data-testid="stFileUploaderDropzoneInstructions"] { display:none; }
 
-    /* buttons: compact (32 px) but a comfortable hit target, with a clear focus ring */
+    /* first-run welcome card */
+    .rca-welcome { max-width:55rem; margin:.8rem auto 0; padding:1.5rem 1.6rem 1.35rem; background:linear-gradient(135deg, #1a2a3b 0%, #172230 72%); border:1px solid var(--rca-border); border-radius:12px; box-shadow:0 14px 30px rgba(0,0,0,.14); }
+    .rca-welcome-kicker { color:var(--rca-blue); font-size:.72rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.45rem; }
+    .rca-welcome h2 { color:var(--rca-text); font-size:1.45rem; line-height:1.2; margin:0 0 .45rem; letter-spacing:-.02em; }
+    .rca-welcome p { margin:.2rem 0; color:#c6d2e2; font-size:.95rem; line-height:1.45; }
+    .rca-welcome-steps { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:.7rem; margin-top:1.15rem; }
+    .rca-welcome-step { padding:.7rem .75rem; background:rgba(29,42,57,.72); border:1px solid #2d4054; border-radius:8px; }
+    .rca-welcome-step b { display:block; color:#eef5ff; font-size:.85rem; margin-bottom:.2rem; text-align:center; }
+    .rca-welcome-step span { display:block; color:var(--rca-muted); font-size:.78rem; line-height:1.35; text-align:center; }
+    .st-key-rca-upload-below { max-width:55rem; margin:.9rem auto 0; background:var(--rca-panel); border-color:var(--rca-border) !important; border-radius:12px; }
+    [role="tooltip"], [data-baseweb="tooltip"] { max-width:27rem !important; width:27rem !important; font-size:.88rem !important; line-height:1.45 !important; }
+    @media (max-width: 760px) { .rca-welcome-steps { grid-template-columns:1fr; } }
+
+    /* buttons: one shared height and rhythm for a coherent control row */
     .stButton button, .stDownloadButton button, [data-testid="stPopoverButton"] {
-        min-height: 2rem; padding: .25rem .75rem; border-radius: 6px; font-size: .85rem; font-weight: 600;
+        height: 2.35rem; min-height: 2.35rem; padding: .35rem .8rem; border-radius: 7px; font-size: .85rem; font-weight: 600; line-height:1.2;
+        display:inline-flex; align-items:center; justify-content:center;
     }
     [data-testid="stBaseButton-primary"] { background:#2478e5; border:1px solid #3d8bf0; color:#fff; }
     [data-testid="stBaseButton-primary"]:hover { background:#3188f4; border-color:#7eb9ff; color:#fff; }
@@ -92,22 +109,28 @@ st.markdown(
     [data-testid="stBaseButton-secondary"]:hover, [data-testid="stPopoverButton"]:hover { border-color:var(--rca-blue); color:#fff; }
     .stButton button p, .stDownloadButton button p, [data-testid="stPopoverButton"] p { font-size: inherit; }
     [data-testid="stPopoverButton"] > div { margin-right: 0 !important; }  /* else the label ellipsises */
+    .stDownloadButton, .stButton, [data-testid="stPopover"] { align-self:stretch; }
+    .stDownloadButton button, .stButton button, [data-testid="stPopoverButton"] { width:100%; }
     button:focus-visible, [role="tab"]:focus-visible, input:focus-visible { outline: 2px solid var(--rca-focus) !important; outline-offset: 2px; }
 
     /* status line + alerts: one line, not a slab */
-    [data-testid="stAlertContainer"] { padding: .5rem .8rem; border-radius: 6px; }
-    [data-testid="stAlertContainer"] p { font-size: .9rem; }
+    [data-testid="stAlertContainer"] { display:flex; align-items:center; min-height:2.8rem; box-sizing:border-box; padding: .35rem .8rem; border-radius: 6px; }
+    [data-testid="stAlertContainer"] p { font-size: .9rem; margin:0; }
+    [data-testid="stAlertContainer"] > div { align-items:center; }
 
     /* headline numbers */
-    [data-testid="stMetric"] { background:var(--rca-panel); border:1px solid var(--rca-border); border-radius:6px; padding:.4rem .6rem; }
-    [data-testid="stMetricLabel"] p { font-size:.74rem; color:var(--rca-muted); }
-    [data-testid="stMetricValue"] { font-size:1.2rem; line-height:1.3; font-weight:600; color:#f1f6fd; }
+    [data-testid="stMetric"] { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:7.1rem; height:7.1rem; box-sizing:border-box; background:var(--rca-panel); border:1px solid var(--rca-border); border-radius:6px; padding:.55rem .6rem; text-align:center; }
+    [data-testid="stMetricLabel"], [data-testid="stMetricValue"], [data-testid="stMetricDelta"] { width:100%; text-align:center; }
+    [data-testid="stMetricLabel"] p { font-size:.9rem; color:var(--rca-muted); }
+    [data-testid="stMetricValue"] { font-size:1.35rem; line-height:1.3; font-weight:600; color:#f1f6fd; }
     [data-testid="stMetricDelta"] { font-size:.72rem; max-width:100%; }
     [data-testid="stMetricDelta"] p, [data-testid="stMetricLabel"] p { white-space:normal; overflow:visible; }
     [data-testid="stMetricLabel"] p { overflow-wrap:normal; word-break:normal; }
+    [data-testid="stTooltipIcon"] { width:1rem !important; height:1rem !important; }
+    [data-testid="stTooltipIcon"] svg { width:.8rem !important; height:.8rem !important; }
     .st-key-rca-tiles > div { flex: 1 1 7.5rem; min-width: 7.5rem; }
-    .rca-eq { display:flex; gap:.6rem; align-items:baseline; font-size:.82rem; color:var(--rca-muted); }
-    .rca-eq code { color:#dbe6f3; background:var(--rca-panel-2); border:1px solid var(--rca-border); border-radius:5px; padding:.1rem .45rem; white-space:normal; }
+    .rca-eq { display:flex; gap:.7rem; align-items:center; margin:.35rem 0 .55rem; font-size:1rem; color:var(--rca-muted); }
+    .rca-eq code { color:#eef5ff; background:var(--rca-panel-2); border:1px solid var(--rca-border); border-radius:6px; padding:.28rem .65rem; font-size:1.08rem; font-weight:600; white-space:normal; }
 
     /* quality checks: icon + title + detail, never colour alone */
     .rca-chk { display:grid; grid-template-columns: 1.25rem 1fr; gap:.45rem; padding:.42rem 0; border-top:1px solid var(--rca-border); font-size:.8rem; line-height:1.35; color:#c6d2e2; }
@@ -230,41 +253,74 @@ def _check(level: str, title: str, detail: str = "") -> str:
             f'{_CHECK_ICON[level]}</span><div>{body}</div></div>')
 
 
+def _display_equation(params: dict) -> str:
+    """Readable UI equation; the fitted/report value keeps full precision."""
+    if params.get("is_segmented") and params.get("segments"):
+        h0 = float(params["h0"])
+        return "; ".join(
+            f"Q = {float(seg['a']):.3f} · (H − {h0:.3f})^{float(seg['b']):.3f}"
+            for seg in params["segments"]
+        )
+    return f"Q = {float(params['a']):.3f} · (H − {float(params['h0']):.3f})^{float(params['b']):.3f}"
+
+
 # --------------------------------------------------------------------------- #
 # Layout: title bar, then a narrow control panel beside the result area.
 # --------------------------------------------------------------------------- #
 st.markdown(
-    '<div class="rca-title"><h1>Rating Curve Automater</h1>'
-    '<span>Stage–discharge rating curves from a gauging spreadsheet</span></div>',
+    '<div class="rca-title"><h1>Rating Curve Automater</h1></div>',
     unsafe_allow_html=True,
 )
-side, main = st.columns([1, 3.3], gap="medium")
-panel = side.container(border=True, key="rca-panel")
 
-with panel:
-    uploaded = st.file_uploader(
+def _measurement_uploader():
+    return st.file_uploader(
         "Measurement spreadsheet",
         type=["xlsx", "xls", "csv"],
-        help="Messy headers, extra sheets, unit labels, placeholder values and footer rows are handled automatically.",
+        key="measurement_upload",
+        help="Accepted: XLSX, XLS, or CSV up to 200MB. We find date, stage, and discharge columns, then clean invalid rows and detect units before fitting.",
     )
+
+
+# Keep the first-run action directly below the welcome card. Once a file is
+# loaded, move the same uploader back into the compact controls column.
+show_side_upload = bool(st.session_state.get("measurement_upload"))
+if show_side_upload:
+    side, main = st.columns([1, 3.3], gap="medium")
+else:
+    side = None
+    main = st.container()
+
+if show_side_upload:
+    panel = side.container(border=True, key="rca-panel")
+    with panel:
+        uploaded = _measurement_uploader()
+else:
+    uploaded = None
 
 if uploaded is None:
     with main:
-        st.info("Upload a spreadsheet of stage–discharge gaugings in the panel on the left. "
-                "The fitted curve, its checks and the downloads appear here.",
-                icon=":material/upload_file:")
         st.markdown(
-            '<div class="rca-empty">'
-            + _check("ok", "Columns detected automatically",
-                     "Date, stage and discharge — you can override any of them.")
-            + _check("ok", "Rows validated before fitting",
-                     "Missing, placeholder and out-of-range values are excluded with a reason.")
-            + _check("ok", "Everything on one screen",
-                     "Curve and uncertainty band, drift check, Excel report and rating table.")
-            + "</div>",
+            '<div class="rca-welcome">'
+            '<div class="rca-welcome-kicker">Ready when you are</div>'
+            '<h2>Turn gauging data into a rating curve</h2>'
+            '<p>Upload an Excel or CSV spreadsheet to clean, check, fit, and review your stage–discharge relationship.</p>'
+            '<div class="rca-welcome-steps">'
+            '<div class="rca-welcome-step"><b>1 · Add your file</b><span>Drop it in the upload area below.</span></div>'
+            '<div class="rca-welcome-step"><b>2 · Review the fit</b><span>Columns and row quality are checked before fitting.</span></div>'
+            '<div class="rca-welcome-step"><b>3 · Export results</b><span>Download the curve report and stage table.</span></div>'
+            '</div></div>',
             unsafe_allow_html=True,
         )
-    st.stop()
+        with st.container(border=True, key="rca-upload-below"):
+            uploaded = _measurement_uploader()
+    if uploaded is None:
+        st.session_state.pop("file_key", None)
+        st.stop()
+
+# If a file was just selected in the first-run uploader, create the controls
+# panel for the rest of this run; on the next rerun the uploader moves there.
+if not show_side_upload:
+    panel = st.container(border=True, key="rca-panel")
 
 data = uploaded.getvalue()
 file_key = hashlib.md5(data).hexdigest()
@@ -538,7 +594,7 @@ with main:
             help=f"Stage → discharge lookup every {rating_step:g} m, as CSV.",
         )
 
-    st.markdown(f'<div class="rca-eq"><span>Equation</span><code>{html.escape(p["equation"])}</code></div>',
+    st.markdown(f'<div class="rca-eq"><span>Equation</span><code>{html.escape(_display_equation(p))}</code></div>',
                 unsafe_allow_html=True)
 
 
@@ -597,7 +653,7 @@ with main:
     with plot_col, st.container(border=True, key="rca-plot"):
         st.pyplot(
             make_rating_curve_figure(fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale,
-                                     fit=p, figure=Figure(figsize=(7.6, 3.9), dpi=130)),
+                                     fit=p, figure=Figure(figsize=(8.4, 5.2), dpi=130)),
             width="stretch",
         )
 

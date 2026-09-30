@@ -17,7 +17,7 @@ def _app():
 def test_app_boots_without_a_file():
     at = _app().run()
     assert not at.exception
-    assert any("Upload" in msg.value for msg in at.info)
+    assert any("Turn gauging data into a rating curve" in msg.value for msg in at.markdown)
 
 
 def test_app_uses_no_deprecated_streamlit_kwargs():
