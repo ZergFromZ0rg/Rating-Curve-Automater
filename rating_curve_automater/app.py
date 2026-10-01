@@ -82,6 +82,7 @@ st.markdown(
 
     /* file uploader: inviting without taking over the working surface */
     [data-testid="stFileUploaderDropzone"] { display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--rca-panel-2); border:1px dashed #6f8dab; border-radius:8px; padding:.7rem; transition:border-color .15s ease, background .15s ease; }
+    .st-key-rca-upload-below [data-testid="stFileUploaderDropzone"] { min-height:8rem; padding:1.2rem; }
     [data-testid="stFileUploaderDropzone"]:hover { background:#223246; border-color:var(--rca-blue); }
     [data-testid="stFileUploaderDropzoneInstructions"] { display:none; }
 
