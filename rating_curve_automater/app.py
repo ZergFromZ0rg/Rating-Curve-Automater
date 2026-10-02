@@ -3,10 +3,9 @@
 Launch it with ``rca app`` (from any install), which runs ``streamlit run`` on
 this file.
 
-The interface is a one-screen dashboard: a narrow control panel on the left
-(upload, column mapping, fit settings) and the result on the right (status and
-downloads, headline numbers, the plot beside the quality checks, then tabs for
-the detail). It is a thin view over
+The interface has a three-column overview: fit controls on the left, the
+curve in the center, and a summary table, file controls and exports on the
+right. A second screen holds the detailed results and quality checks. It is a thin view over
 :class:`rating_curve_automater.workflow.RatingCurveWorkflow`.
 """
 
@@ -15,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import html
 import tempfile
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -41,59 +41,119 @@ st.markdown(
     """
     <style>
     :root {
-        --rca-bg: #0d141d;
-        --rca-panel: #172230;
-        --rca-panel-2: #1d2a39;
-        --rca-border: #2d4054;
-        --rca-text: #eef5ff;
-        --rca-muted: #9eb0c4;
-        --rca-blue: #61a8ff;
-        --rca-green: #45d39a;
-        --rca-amber: #f4b860;
-        --rca-red: #ff8a80;
-        --rca-focus: #9ccbff;
+        --rca-font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        --rca-bg: #eaf4fb;
+        --rca-panel: #ffffff;
+        --rca-panel-2: #f4f9fd;
+        --rca-border: #bfd4e5;
+        --rca-text: #17324a;
+        --rca-muted: #5d7489;
+        --rca-blue: #2478e5;
+        --rca-green: #16855a;
+        --rca-amber: #a86511;
+        --rca-red: #c74444;
+        --rca-focus: #1c6ed0;
     }
-    .stApp { background: var(--rca-bg); color: var(--rca-text); }
-    .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricValue"], .stApp [data-testid="stMetricDelta"] {
-        font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    .stApp {
+        background-color:var(--rca-bg); color:var(--rca-text);
+        background-image:
+            radial-gradient(ellipse at 12% 18%, rgba(36,120,229,.035), transparent 27%),
+            radial-gradient(ellipse at 83% 11%, rgba(36,120,229,.025), transparent 22%),
+            radial-gradient(ellipse at 71% 76%, rgba(36,120,229,.030), transparent 31%),
+            radial-gradient(circle, rgba(36,120,229,.040) 0 1px, transparent 1.4px),
+            radial-gradient(circle, rgba(69,145,224,.028) 0 1px, transparent 1.5px);
+        background-size:auto, auto, auto, 137px 149px, 211px 173px;
+        background-position:center, center, center, 19px 31px, 83px 57px;
+        background-attachment:fixed;
+    }
+    /* Include portaled menus and popovers; leave icon and code fonts intact. */
+    body, div, p, label, button, input, textarea, select,
+    h1, h2, h3, h4, h5, h6, table, th, td {
+        font-family: var(--rca-font) !important;
+    }
+    [data-testid="stMetricValue"], input[type="number"] {
+        font-variant-numeric: tabular-nums;
     }
     header[data-testid="stHeader"] { background: transparent; }
     [data-testid="stAppDeployButton"] { display: none; }
     .block-container { max-width: 1680px; padding: .8rem 1.25rem 1.5rem; }
     [data-testid="stVerticalBlock"] { gap: .45rem; }
     [data-testid="stHorizontalBlock"] { gap: .6rem; }
-    p, label, [data-testid="stMarkdownContainer"] { color: #c6d2e2; }
+    p, label, [data-testid="stMarkdownContainer"] { color: #314b61; }
     [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { font-size: .78rem; color: var(--rca-muted); }
     [data-testid="stWidgetLabel"] p { font-size: .82rem; }
     /* Streamlit pulls markdown up by 1rem to cancel a <p> margin; our HTML blocks have none */
     [data-testid="stMarkdownContainer"]:has(> .rca-title, > .rca-label, > .rca-file, > .rca-eq, > .rca-empty) { margin-bottom: 0; }
 
     /* title bar — leaves room for Streamlit's menu on the right */
-    .rca-title { display:flex; align-items:baseline; justify-content:center; flex-wrap:wrap; gap:.2rem .75rem; margin:0 0 .6rem; text-align:center; }
-    .rca-title h1 { font-size:1.75rem !important; line-height:1.2 !important; font-weight:800 !important; margin:0 !important; padding:0 !important; letter-spacing:-.03em; }
+    .rca-title { display:flex; flex-direction:column; align-items:center; gap:.65rem; margin:.35rem 0 1rem; text-align:center; }
+    .rca-title h1 { font-size:clamp(1.35rem, 2.2vw, 1.8rem) !important; line-height:1.25 !important; font-weight:500 !important; margin:0 !important; padding:0 !important; letter-spacing:-.015em; color:var(--rca-text); }
+    .rca-title::after { content:""; width:2.5rem; height:2px; border-radius:2px; background:var(--rca-blue); opacity:.75; }
 
     /* panels */
-    .st-key-rca-panel, .st-key-rca-plot, .st-key-rca-checks, .st-key-rca-colmap-inline {
+    .st-key-rca-panel, .st-key-rca-columns, .st-key-rca-equation, .st-key-rca-plot, .st-key-rca-checks, .st-key-rca-colmap-inline {
         background: var(--rca-panel); border-color: var(--rca-border) !important; border-radius: 8px;
     }
-    .st-key-rca-panel { gap: .5rem; }
-    .rca-label { color:var(--rca-muted); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; margin:.3rem 0 -.2rem; }
+    .st-key-rca-panel > [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-rca-columns > [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-rca-file-panel > [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-rca-summary > [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-rca-exports > [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-rca-plot > [data-testid="stVerticalBlockBorderWrapper"] {
+        padding:.85rem;
+    }
+    .st-key-rca-panel > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"],
+    .st-key-rca-columns > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"],
+    .st-key-rca-file-panel > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"],
+    .st-key-rca-summary > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"],
+    .st-key-rca-exports > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"] {
+        gap:.65rem;
+    }
+    .rca-label {
+        color:var(--rca-muted); font-size:.82rem; font-weight:700;
+        line-height:1.2; letter-spacing:.07em; text-transform:uppercase;
+        margin:0;
+    }
+    .st-key-rca-file-panel [data-testid="stWidgetLabel"] { margin:0; }
+    .st-key-rca-file-panel [data-testid="stWidgetLabel"] p {
+        color:var(--rca-muted) !important; font-size:.82rem !important;
+        font-weight:700 !important; line-height:1.2 !important;
+        letter-spacing:.07em; text-transform:uppercase;
+    }
     .rca-file { color:var(--rca-muted); font-size:.78rem; }
+    .rca-column-status {
+        color:#71869a; font-size:.72rem; line-height:1.35; margin:0;
+    }
+    .rca-columns-copy {
+        display:flex; flex-direction:column; align-items:flex-start;
+        gap:.3rem; margin:0; padding:0;
+    }
+    .rca-columns-copy .rca-label { font-size:.82rem; line-height:1.15; }
+    .rca-columns-copy .rca-file { font-size:.76rem; line-height:1.3; }
+    .rca-columns-copy .rca-column-status {
+        font-size:.69rem; line-height:1.3; margin-top:.05rem;
+    }
 
     /* file uploader: inviting without taking over the working surface */
     [data-testid="stFileUploaderDropzone"] { display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--rca-panel-2); border:1px dashed #6f8dab; border-radius:8px; padding:.7rem; transition:border-color .15s ease, background .15s ease; }
+    .st-key-rca-file-panel [data-testid="stFileUploader"] {
+        display:flex; flex-direction:column; gap:.65rem; height:100%;
+    }
+    .st-key-rca-file-panel [data-testid="stFileUploaderDropzone"] { flex:1; min-height:0; }
     .st-key-rca-upload-below [data-testid="stFileUploaderDropzone"] { min-height:8rem; padding:1.2rem; }
-    [data-testid="stFileUploaderDropzone"]:hover { background:#223246; border-color:var(--rca-blue); }
+    [data-testid="stFileUploaderDropzone"]:hover { background:#e7f2fb; border-color:var(--rca-blue); }
     [data-testid="stFileUploaderDropzoneInstructions"] { display:none; }
+    /* This workflow accepts one file. Remove it before choosing a replacement. */
+    [data-testid="stFileUploaderDropzone"] button[aria-label="Add files"] { display:none; }
 
     /* first-run welcome card */
-    .rca-welcome { max-width:55rem; margin:.8rem auto 0; padding:1.5rem 1.6rem 1.35rem; background:linear-gradient(135deg, #1a2a3b 0%, #172230 72%); border:1px solid var(--rca-border); border-radius:12px; box-shadow:0 14px 30px rgba(0,0,0,.14); }
+    .rca-welcome { max-width:55rem; margin:.8rem auto 0; padding:1.5rem 1.6rem 1.35rem; background:linear-gradient(135deg, #ffffff 0%, #f1f8fd 72%); border:1px solid var(--rca-border); border-radius:12px; box-shadow:0 14px 30px rgba(50,91,124,.10); }
     .rca-welcome-kicker { color:var(--rca-blue); font-size:.72rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.45rem; }
     .rca-welcome h2 { color:var(--rca-text); font-size:1.45rem; line-height:1.2; margin:0 0 .45rem; letter-spacing:-.02em; }
-    .rca-welcome p { margin:.2rem 0; color:#c6d2e2; font-size:.95rem; line-height:1.45; }
+    .rca-welcome p { margin:.2rem 0; color:#314b61; font-size:.95rem; line-height:1.45; }
     .rca-welcome-steps { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:.7rem; margin-top:1.15rem; }
-    .rca-welcome-step { padding:.7rem .75rem; background:rgba(29,42,57,.72); border:1px solid #2d4054; border-radius:8px; }
-    .rca-welcome-step b { display:block; color:#eef5ff; font-size:.85rem; margin-bottom:.2rem; text-align:center; }
+    .rca-welcome-step { padding:.7rem .75rem; background:#f7fbfe; border:1px solid var(--rca-border); border-radius:8px; }
+    .rca-welcome-step b { display:block; color:var(--rca-text); font-size:.85rem; margin-bottom:.2rem; text-align:center; }
     .rca-welcome-step span { display:block; color:var(--rca-muted); font-size:.78rem; line-height:1.35; text-align:center; }
     .st-key-rca-upload-below { max-width:55rem; margin:.9rem auto 0; background:var(--rca-panel); border-color:var(--rca-border) !important; border-radius:12px; }
     [role="tooltip"], [data-baseweb="tooltip"] { max-width:27rem !important; width:27rem !important; font-size:.88rem !important; line-height:1.45 !important; }
@@ -101,15 +161,18 @@ st.markdown(
 
     /* buttons: one shared height and rhythm for a coherent control row */
     .stButton button, .stDownloadButton button, [data-testid="stPopoverButton"] {
-        height: 2.35rem; min-height: 2.35rem; padding: .35rem .8rem; border-radius: 7px; font-size: .85rem; font-weight: 600; line-height:1.2;
+        height: auto; min-height: 2.35rem; padding: .35rem .8rem; border-radius: 7px; font-size: .85rem; font-weight: 600; line-height:1.2;
         display:inline-flex; align-items:center; justify-content:center;
     }
     [data-testid="stBaseButton-primary"] { background:#2478e5; border:1px solid #3d8bf0; color:#fff; }
+    [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primary"] p,
+    [data-testid="stBaseButton-primary"] span,
+    [data-testid="stBaseButton-primary"] [data-testid="stIconMaterial"] { color:#fff !important; }
     [data-testid="stBaseButton-primary"]:hover { background:#3188f4; border-color:#7eb9ff; color:#fff; }
-    [data-testid="stBaseButton-secondary"], [data-testid="stPopoverButton"] { background:var(--rca-panel-2); border:1px solid #3a5570; color:#dbe6f3; }
-    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stPopoverButton"]:hover { border-color:var(--rca-blue); color:#fff; }
+    [data-testid="stBaseButton-secondary"], [data-testid="stPopoverButton"] { background:var(--rca-panel-2); border:1px solid #9bbbd3; color:var(--rca-text); }
+    [data-testid="stBaseButton-secondary"]:hover, [data-testid="stPopoverButton"]:hover { border-color:var(--rca-blue); color:var(--rca-blue); }
     .stButton button p, .stDownloadButton button p, [data-testid="stPopoverButton"] p { font-size: inherit; }
-    [data-testid="stPopoverButton"] > div { margin-right: 0 !important; }  /* else the label ellipsises */
     .stDownloadButton, .stButton, [data-testid="stPopover"] { align-self:stretch; }
     .stDownloadButton button, .stButton button, [data-testid="stPopoverButton"] { width:100%; }
     button:focus-visible, [role="tab"]:focus-visible, input:focus-visible { outline: 2px solid var(--rca-focus) !important; outline-offset: 2px; }
@@ -117,36 +180,240 @@ st.markdown(
     /* status line + alerts: one line, not a slab */
     [data-testid="stAlertContainer"] { display:flex; align-items:center; min-height:2.8rem; box-sizing:border-box; padding: .35rem .8rem; border-radius: 6px; }
     [data-testid="stAlertContainer"] p { font-size: .9rem; margin:0; }
-    [data-testid="stAlertContainer"] > div { align-items:center; }
+    [data-testid="stAlertContainer"] [data-testid^="stAlertContent"] > div { align-items:center; }
+    [data-testid="stAlertContainer"] div:has(> [data-testid="stAlertDynamicIcon"]) { top:0; display:flex; align-items:center; }
+    [data-testid="stAlertContainer"] [data-testid="stMarkdownContainer"] { margin:0; }
+    [data-testid="stAlertContainer"] p { line-height:1.4; }
 
-    /* headline numbers */
-    [data-testid="stMetric"] { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:7.1rem; height:7.1rem; box-sizing:border-box; background:var(--rca-panel); border:1px solid var(--rca-border); border-radius:6px; padding:.55rem .6rem; text-align:center; }
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"], [data-testid="stMetricDelta"] { width:100%; text-align:center; }
-    [data-testid="stMetricLabel"] p { font-size:.9rem; color:var(--rca-muted); }
-    [data-testid="stMetricValue"] { font-size:1.35rem; line-height:1.3; font-weight:600; color:#f1f6fd; }
-    [data-testid="stMetricDelta"] { font-size:.72rem; max-width:100%; }
-    [data-testid="stMetricDelta"] p, [data-testid="stMetricLabel"] p { white-space:normal; overflow:visible; }
-    [data-testid="stMetricLabel"] p { overflow-wrap:normal; word-break:normal; }
-    [data-testid="stTooltipIcon"] { width:1rem !important; height:1rem !important; }
-    [data-testid="stTooltipIcon"] svg { width:.8rem !important; height:.8rem !important; }
-    .st-key-rca-tiles > div { flex: 1 1 7.5rem; min-width: 7.5rem; }
-    .rca-eq { display:flex; gap:.7rem; align-items:center; margin:.35rem 0 .55rem; font-size:1rem; color:var(--rca-muted); }
-    .rca-eq code { color:#eef5ff; background:var(--rca-panel-2); border:1px solid var(--rca-border); border-radius:6px; padding:.28rem .65rem; font-size:1.08rem; font-weight:600; white-space:normal; }
+    /* Center control text and glyphs without constraining tooltip wrappers. */
+    button [data-testid="stMarkdownContainer"],
+    [data-testid="stCheckbox"] [data-testid="stMarkdownContainer"] { margin:0; }
+    button [data-testid="stMarkdownContainer"] p { margin:0; line-height:1.25; }
+    button [data-testid="stIconMaterial"],
+    [data-testid="stAlertContainer"] [data-testid="stIconMaterial"] {
+        display:inline-flex; align-items:center; justify-content:center;
+        width:1.1em; height:1.1em; line-height:1; flex-shrink:0;
+    }
+    [data-testid="stCheckbox"] label { align-items:center; }
+    [data-testid="stCheckbox"] [data-testid="stWidgetLabel"] { align-items:center; }
+    [data-testid="stCheckbox"] p { margin:0; line-height:1.4; }
+    button[aria-label^="Help for "] {
+        display:inline-flex; align-items:center; justify-content:center;
+        width:1.25rem; height:1.25rem; min-height:0; padding:0; flex-shrink:0;
+    }
+    button[aria-label^="Help for "] svg { width:1rem; height:1rem; }
+
+    /* The curve is the primary work surface; the rail holds a compact table. */
+    .st-key-rca-summary, .st-key-rca-file-panel, .st-key-rca-exports {
+        background:var(--rca-panel); border-color:var(--rca-border) !important; border-radius:8px;
+    }
+    .rca-chart-heading { text-align:center; padding:.5rem .25rem .8rem; margin-bottom:0; }
+    .st-key-rca-fit-status [data-testid="stAlertContainer"] { justify-content:center; text-align:center; }
+    .st-key-rca-fit-status [data-testid="stAlertContainer"] {
+        min-height:3.15rem; padding:.4rem .85rem; border-radius:8px;
+    }
+    .st-key-rca-fit-status [data-testid="stAlertContainer"] p { font-size:.95rem; }
+    .st-key-rca-fit-status [data-testid="stAlertDynamicIcon"] { font-size:1.1rem; }
+    .st-key-rca-fit-status [data-testid^="stAlertContent"] {
+        flex:0 1 auto !important; width:auto !important;
+    }
+    .st-key-rca-fit-status [data-testid^="stAlertContent"] > div { justify-content:center; }
+    .st-key-rca-fit-status [data-testid="stAlertContainer"] [data-testid="stMarkdownContainer"] {
+        flex:0 1 auto; width:auto !important; text-align:center;
+    }
+    .rca-chart-heading h2 { font-size:1.25rem; font-weight:500; margin:0 0 .5rem; padding:0; }
+    .rca-chart-heading code { background:transparent; color:var(--rca-muted); font-size:1.15rem; white-space:normal; overflow-wrap:anywhere; }
+    .st-key-rca-equation .rca-chart-heading {
+        min-height:3rem; width:100%; box-sizing:border-box; padding:.3rem 1rem;
+        display:flex; align-items:center; justify-content:center;
+        transform:none;
+    }
+    .st-key-rca-equation [data-testid="stMarkdownContainer"] {
+        width:100%; margin:0 !important;
+    }
+    .st-key-rca-plot [data-testid="stImage"] { position:relative; }
+    .st-key-rca-plot [data-testid="stElementToolbar"] {
+        top:.75rem !important; right:.75rem !important; padding:0 !important;
+        transform:none !important;
+    }
+    .st-key-rca-plot button[aria-label="Fullscreen"] {
+        position:static !important; inset:auto !important; transform:none !important;
+        width:1.8rem !important; height:1.8rem !important; min-height:1.8rem !important;
+        padding:.3rem !important; border:1px solid #c6d6e2 !important;
+        border-radius:6px !important; background:rgba(255,255,255,.94) !important;
+        color:#24415b !important; box-shadow:0 2px 8px rgba(31,65,91,.14);
+        z-index:5;
+    }
+    .st-key-rca-plot button[aria-label="Fullscreen"] svg {
+        width:.9rem !important; height:.9rem !important;
+    }
+    .rca-summary-table {
+        overflow:hidden; border:1px solid #d8dee3; border-radius:8px;
+        background:#fff; margin-bottom:1rem;
+    }
+    .rca-summary-row {
+        display:grid; grid-template-columns:minmax(0,47%) minmax(0,53%);
+        align-items:center; min-height:2.2rem; border-top:1px solid #e1e5e8;
+    }
+    .rca-summary-row:first-child { border-top:0; }
+    .rca-summary-cell {
+        min-width:0; padding:.4rem .5rem; color:var(--rca-text);
+        font-size:.76rem; line-height:1.2;
+    }
+    .rca-summary-cell + .rca-summary-cell { border-left:1px solid #e1e5e8; }
+    .rca-summary-row:not(:first-child) .rca-summary-cell:first-child { font-weight:400; }
+    .rca-summary-row:first-child {
+        background:#fff; border-bottom:2px solid #c4ccd2;
+    }
+    .rca-summary-head { color:var(--rca-text); font-size:.76rem; font-weight:400; }
+    .rca-summary-value { text-align:right; font-variant-numeric:tabular-nums; }
+    .rca-summary-number { display:block; white-space:nowrap; font-size:.82rem; font-weight:400; }
+    .rca-summary-note {
+        display:block; margin-top:.16rem; color:var(--rca-muted);
+        font-size:.65rem; font-weight:400; line-height:1.25;
+    }
+    .st-key-rca-top-row [data-testid="stColumn"],
+    .st-key-rca-workspace [data-testid="stColumn"] { min-width:0; }
+    .st-key-rca-top-row > [data-testid="stHorizontalBlock"] { align-items:stretch; }
+    .st-key-rca-top-row [data-testid="stColumn"] > [data-testid="stVerticalBlock"] { height:100%; gap:.5rem; }
+    .st-key-rca-columns, .st-key-rca-file-panel {
+        height:100%; min-height:8.7rem; box-sizing:border-box;
+    }
+    .st-key-rca-columns > [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-rca-file-panel > [data-testid="stVerticalBlockBorderWrapper"] { height:100%; }
+    .st-key-rca-columns > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"] {
+        height:100%; justify-content:flex-start; gap:.5rem;
+    }
+    .st-key-rca-columns [data-testid="stPopover"] { margin-top:auto; }
+    .st-key-rca-columns [data-testid="stPopoverButton"] {
+        min-height:2.35rem; font-size:.84rem; line-height:1.2;
+    }
+    .st-key-rca-file-panel > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"] {
+        height:100%;
+    }
+    .st-key-rca-workspace [data-testid="stColumn"] > [data-testid="stVerticalBlock"] { gap:.5rem; }
+    @media (min-width:1101px) and (min-height:700px) {
+        .st-key-rca-columns { position:relative; }
+        .st-key-rca-columns [data-testid="stPopover"] {
+            position:absolute; left:.85rem; right:.85rem; bottom:.85rem;
+            width:auto !important; margin:0;
+        }
+        .st-key-rca-plot img { width:100%; max-height:calc(100svh - 18rem); object-fit:contain; }
+        .rca-summary-cell { padding:.3rem .42rem; }
+        .rca-chart-heading { padding:.25rem .25rem .5rem; }
+        .rca-title { margin:.1rem 0 .65rem; gap:.4rem; }
+        .rca-screen-nav { padding:0; margin:0; }
+    }
+    @media (min-width:761px) and (max-width:1100px) {
+        .st-key-rca-top-row > [data-testid="stHorizontalBlock"],
+        .st-key-rca-workspace > [data-testid="stHorizontalBlock"] { flex-wrap:wrap; }
+        .st-key-rca-top-row > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+        .st-key-rca-workspace > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { min-width:14rem; }
+    }
 
     /* quality checks: icon + title + detail, never colour alone */
-    .rca-chk { display:grid; grid-template-columns: 1.25rem 1fr; gap:.45rem; padding:.42rem 0; border-top:1px solid var(--rca-border); font-size:.8rem; line-height:1.35; color:#c6d2e2; }
+    .rca-chk { display:grid; grid-template-columns: 1.25rem 1fr; gap:.45rem; padding:.42rem 0; border-top:1px solid var(--rca-border); font-size:.8rem; line-height:1.35; color:#314b61; }
     .rca-chk:first-of-type { border-top:0; }
-    .rca-chk b { display:block; color:#eef5ff; font-weight:600; font-size:.84rem; }
-    .rca-chk-ic { width:1.25rem; height:1.25rem; border-radius:50%; display:grid; place-items:center; font-size:.72rem; font-weight:800; color:#0d141d; }
-    .rca-ok .rca-chk-ic { background:var(--rca-green); }
-    .rca-warn .rca-chk-ic { background:var(--rca-amber); }
-    .rca-bad .rca-chk-ic { background:var(--rca-red); }
-    .rca-info .rca-chk-ic { background:var(--rca-blue); }
+    .rca-chk b { display:block; color:var(--rca-text); font-weight:600; font-size:.84rem; }
+    .rca-chk-ic { width:1.25rem; height:1.25rem; border-radius:50%; display:grid; place-items:center; line-height:1; font-size:.72rem; font-weight:600; color:var(--rca-text); border:2px solid currentColor; box-sizing:border-box; }
+    .rca-chk-ic svg { width:70%; height:70%; display:block; }
+    .rca-ok .rca-chk-ic { color:var(--rca-green); }
+    .rca-warn .rca-chk-ic { color:var(--rca-amber); }
+    .rca-bad .rca-chk-ic { color:var(--rca-red); }
+    .rca-info .rca-chk-ic { color:var(--rca-blue); }
     .rca-empty { max-width: 40rem; margin-top: .4rem; }
+
+    /* Two full-height result screens share the page's native scroll area. */
+    [data-testid="stMain"]:has(.st-key-rca-details) {
+        scroll-snap-type:y mandatory;
+        scroll-padding-top:1rem;
+    }
+    .st-key-rca-overview, .st-key-rca-details {
+        min-height:calc(100svh - 2.5rem);
+        scroll-snap-align:start;
+        scroll-snap-stop:always;
+    }
+    .st-key-rca-details {
+        margin-top:2rem; padding:1.5rem;
+        background:#e1f0fa; border:1px solid #afcce0; color:var(--rca-text);
+        border-radius:12px;
+    }
+    .st-key-rca-details p, .st-key-rca-details label,
+    .st-key-rca-details [data-testid="stMarkdownContainer"] { color:#314b61; }
+    .st-key-rca-details [data-testid="stDataFrame"],
+    .st-key-rca-details [data-testid="stTable"] {
+        background:#ffffff; border-radius:8px; box-shadow:0 1px 3px rgba(37,78,108,.08);
+    }
+    .st-key-rca-details [data-testid="stDataFrame"] [role="columnheader"],
+    .st-key-rca-details [data-testid="stDataFrame"] [role="row"]:first-child [role="cell"],
+    .st-key-rca-details [data-testid="stTable"] th {
+        color:#000 !important; fill:#000 !important;
+        border-bottom:2px solid #8999a6 !important;
+    }
+    .st-key-rca-details [data-testid="stDataFrame"] [role="columnheader"] * {
+        color:#000 !important; fill:#000 !important;
+    }
+    .st-key-rca-rating-table { position:relative; }
+    .st-key-rca-rating-table [data-testid="stDataFrame"] { position:relative; }
+    .st-key-rca-rating-table [data-testid="stDataFrame"]::after {
+        content:""; position:absolute; z-index:4; pointer-events:none;
+        left:0; right:0; top:2.2rem; height:2px; background:#8999a6;
+    }
+    .st-key-rca-rating-table [data-testid="stMarkdownContainer"]:has(> .rca-grid-header) {
+        position:relative; z-index:20;
+        height:0; min-height:0; margin:0 !important; overflow:visible;
+        transform:translateY(calc(-660px - .45rem));
+        pointer-events:none;
+    }
+    .rca-grid-header {
+        position:absolute; inset:0; height:2.2rem;
+        display:grid;
+        grid-template-columns:10.1% 13.1% 15.55% 15.6% 15.15% 15.35% 15.15%;
+        overflow:hidden; box-sizing:border-box; pointer-events:none;
+        background:#fff; border-radius:8px 8px 0 0;
+        border:1px solid var(--rca-border); border-bottom:0;
+    }
+    .rca-grid-header > span {
+        min-width:0; padding:.4rem .55rem; display:flex; align-items:center;
+        color:#000; font-size:.82rem; font-weight:400; line-height:1.2;
+        white-space:nowrap; overflow:hidden; text-overflow:clip;
+        border-left:1px solid #d8dee3;
+    }
+    .rca-grid-header > span:first-child {
+        border-left:0; justify-content:space-between;
+    }
+    .rca-grid-header-menu {
+        color:#000; font-size:1rem; line-height:1; margin-left:.35rem;
+    }
+    .st-key-rca-overview > [data-testid="stVerticalBlock"] { min-height:calc(100svh - 2.5rem); }
+    .st-key-rca-overview [data-testid="stMarkdownContainer"]:has(> .rca-screen-nav) {
+        flex:1 1 auto; min-height:clamp(3rem, 6svh, 4.5rem);
+        display:flex; align-items:center; justify-content:center;
+    }
+    .rca-screen-nav {
+        display:flex; align-items:center; justify-content:center;
+        width:100%; height:100%; padding:0; margin:0; position:relative; z-index:2;
+    }
+    .rca-screen-nav a, .rca-details-heading a {
+        color:var(--rca-blue); text-decoration:none; font-size:.85rem;
+    }
+    .rca-screen-nav a:hover, .rca-details-heading a:hover { text-decoration:underline; }
+    .rca-details-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:.75rem; }
+    .rca-details-heading h2 { margin:0; padding:0; font-size:1.5rem; font-weight:500; }
+    #rca-overview, #rca-details { scroll-margin-top:1.5rem; }
+    @media (prefers-reduced-motion:no-preference) {
+        [data-testid="stMain"]:has(.st-key-rca-details) { scroll-behavior:smooth; }
+    }
+    @media (max-width:760px) {
+        [data-testid="stMain"]:has(.st-key-rca-details) { scroll-snap-type:y proximity; }
+        .st-key-rca-details { padding:1rem; }
+    }
 
     /* tabs + expanders */
     [data-testid="stTabs"] [role="tab"] p { font-size:.86rem; }
-    [data-testid="stExpander"] details { border-color:var(--rca-border); background:rgba(18,28,40,.65); border-radius:6px; }
+    .st-key-rca-details [role="tab"][aria-selected="true"] p { color:var(--rca-blue) !important; }
+    .st-key-rca-details [data-baseweb="tab-highlight"] { background-color:var(--rca-blue) !important; }
+    [data-testid="stExpander"] details { border-color:var(--rca-border); background:#ffffff; border-radius:6px; }
     [data-testid="stExpander"] summary { padding:.4rem .65rem; font-size:.86rem; }
     hr { border-color:var(--rca-border); }
     </style>
@@ -243,7 +510,18 @@ def _column_concerns(rep) -> list[tuple[str, str]]:
     return concerns
 
 
-_CHECK_ICON = {"ok": "✓", "warn": "!", "bad": "✕", "info": "i"}
+_CHECK_PATH = {
+    "ok": '<path d="m3 8 3 3 7-7"/>',
+    "warn": '<path d="M8 3v6m0 3v.1"/>',
+    "bad": '<path d="m4 4 8 8m0-8-8 8"/>',
+    "info": '<path d="M8 7v6m0-10v.1"/>',
+}
+_CHECK_ICON = {
+    level: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" '
+           'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+           + path + '</svg>'
+    for level, path in _CHECK_PATH.items()
+}
 
 
 def _check(level: str, title: str, detail: str = "") -> str:
@@ -266,10 +544,11 @@ def _display_equation(params: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Layout: title bar, then a narrow control panel beside the result area.
+# Layout: title, result heading, then controls | graph | summary.
 # --------------------------------------------------------------------------- #
-st.markdown(
-    '<div class="rca-title"><h1>Rating Curve Automater</h1></div>',
+overview = st.container(key="rca-overview")
+overview.markdown(
+    '<div class="rca-title" id="rca-overview"><h1>Rating Curve Automater</h1></div>',
     unsafe_allow_html=True,
 )
 
@@ -278,22 +557,36 @@ def _measurement_uploader():
         "Measurement spreadsheet",
         type=["xlsx", "xls", "csv"],
         key="measurement_upload",
-        help="Accepted: XLSX, XLS, or CSV up to 200MB. We find date, stage, and discharge columns, then clean invalid rows and detect units before fitting.",
+        accept_multiple_files=False,
+        help="Accepted: XLSX, XLS, or CSV up to 200MB.  \n"
+             "We find date, stage, and discharge columns, then clean invalid rows and detect units before fitting.  \n"
+             "One file at a time. Remove the current file with × to choose another.",
     )
 
 
 # Keep the first-run action directly below the welcome card. Once a file is
-# loaded, move the same uploader back into the compact controls column.
+# loaded, move the same uploader into the right-hand file panel.
 show_side_upload = bool(st.session_state.get("measurement_upload"))
 if show_side_upload:
-    side, main = st.columns([1, 3.3], gap="medium")
+    with overview.container(key="rca-top-row"):
+        top_left, top_center, top_right = st.columns([1.05, 3.35, 1.25], gap="small")
+    column_controls = top_left.container(border=True, key="rca-columns")
+    status_box = top_center.container(key="rca-fit-status")
+    equation_box = top_center.container(border=True, key="rca-equation")
+    file_box = top_right.container(border=True, key="rca-file-panel")
+    with overview.container(key="rca-workspace"):
+        side, center, rail = st.columns([1.05, 3.35, 1.25], gap="small")
+    panel = side.container(border=True, key="rca-panel")
+    fit_controls = panel.container()
+    main = center.container(border=True, key="rca-plot")
+    summary_box = rail.container(border=True, key="rca-summary")
+    export_box = rail.container(border=True, key="rca-exports")
 else:
     side = None
-    main = st.container()
+    main = overview.container()
 
 if show_side_upload:
-    panel = side.container(border=True, key="rca-panel")
-    with panel:
+    with file_box:
         uploaded = _measurement_uploader()
 else:
     uploaded = None
@@ -318,10 +611,9 @@ if uploaded is None:
         st.session_state.pop("file_key", None)
         st.stop()
 
-# If a file was just selected in the first-run uploader, create the controls
-# panel for the rest of this run; on the next rerun the uploader moves there.
+# Move a newly selected file into the working layout immediately.
 if not show_side_upload:
-    panel = st.container(border=True, key="rca-panel")
+    st.rerun()
 
 data = uploaded.getvalue()
 file_key = hashlib.md5(data).hexdigest()
@@ -356,9 +648,18 @@ except Exception as exc:  # noqa: BLE001
 
 col_concerns = _column_concerns(pre)
 alert_box = main.container()
-with panel:
+with column_controls:
+    mapping_status = (
+        "Required fields found."
+        if pre.mapping.is_complete
+        else "Required fields not found."
+    )
     st.markdown(
-        f'<div class="rca-file">{pre.n_rows:,} rows · {len(pre.source_columns)} columns</div>',
+        '<div class="rca-columns-copy">'
+        '<div class="rca-label">Data columns</div>'
+        f'<div class="rca-file">{pre.n_rows:,} rows · {len(pre.source_columns)} columns</div>'
+        f'<div class="rca-column-status">{mapping_status}</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
     if pre.mapping.is_complete:
@@ -445,7 +746,7 @@ report = result.load_report
 # --------------------------------------------------------------------------- #
 site = None
 bayesian_sampler = "auto"
-with panel:
+with fit_controls:
     st.markdown('<div class="rca-label">Fit</div>', unsafe_allow_html=True)
     segments = st.selectbox(
         "Curve shape", [1, 2, 3, "auto"],
@@ -493,8 +794,8 @@ with panel:
                 st.caption("↳ forced to a single segment.")
                 segments = 1
 
-    with st.container(horizontal=True, gap="small"):
-        with st.popover("Uncertainty", icon=":material/tune:",
+    with st.container(gap="small"):
+        with st.popover("Uncertainty", icon=":material/tune:", width="stretch",
                         help="Measurement uncertainty and the point-flag threshold"):
             uncertainty_pct = st.number_input(
                 "Assumed discharge-measurement uncertainty (±%)", min_value=0.5, max_value=100.0,
@@ -507,7 +808,7 @@ with panel:
                 "Flag a gauging in the report once it sits this far off the curve",
                 5, 100, int(round(DEFAULT_UNCERTAINTY_THRESHOLD * 100)), 5, format="%d%%",
             ) / 100.0
-        with st.popover("Advanced", icon=":material/more_horiz:",
+        with st.popover("Advanced", icon=":material/more_horiz:", width="stretch",
                         help="Rating-table step and the optional Manning check"):
             rating_step = st.number_input(
                 "Rating-table step (m)", min_value=0.001, max_value=1.0,
@@ -572,91 +873,119 @@ tag = f"_{site}" if site else ""
 # --------------------------------------------------------------------------- #
 # Status line + downloads
 # --------------------------------------------------------------------------- #
-with main:
-    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
-        if not outcome.is_plausible:
-            st.error("**Not a plausible rating curve** — see the checks beside the plot.",
-                     icon=":material/error:")
-        elif outcome.warnings:
-            st.warning(f"**Fitted, with warnings** · {r2_label} = {r2_value:.3f} "
-                       f"from {p['n_points']} gaugings", icon=":material/warning:")
-        else:
-            st.success(f"**Rating curve fitted** · {r2_label} = {r2_value:.3f} "
-                       f"from {p['n_points']} gaugings", icon=":material/check_circle:")
-        st.download_button(
-            "Excel report", data=report_bytes, type="primary", icon=":material/download:",
-            file_name=f"rating_curve_report{tag}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Data, fitted curve, uncertainty, diagnostics and the rating table in one workbook.",
-        )
-        st.download_button(
-            "Rating table", data=rating_csv, icon=":material/table:",
-            file_name=f"rating_table{tag}.csv", mime="text/csv",
-            help=f"Stage → discharge lookup every {rating_step:g} m, as CSV.",
-        )
+with equation_box:
+    st.markdown(
+        '<div class="rca-chart-heading">'
+        f'<code>{html.escape(_display_equation(p))}</code></div>',
+        unsafe_allow_html=True,
+    )
+with status_box:
+    if not outcome.is_plausible:
+        st.error("**Not a plausible rating curve** — see the Checks tab in Detailed results.",
+                 icon=":material/error:")
+    elif outcome.warnings:
+        st.warning(f"**Fitted, with warnings** · {r2_label} = {r2_value:.3f} "
+                   f"from {p['n_points']} gaugings", icon=":material/warning:")
+    else:
+        st.success(f"**Rating curve fitted** · {r2_label} = {r2_value:.3f} "
+                   f"from {p['n_points']} gaugings", icon=":material/check_circle:")
 
-    st.markdown(f'<div class="rca-eq"><span>Equation</span><code>{html.escape(_display_equation(p))}</code></div>',
-                unsafe_allow_html=True)
+with export_box:
+    st.markdown('<div class="rca-label">Export</div>', unsafe_allow_html=True)
+    st.download_button(
+        "Excel report", data=report_bytes, type="primary", icon=":material/download:", width="stretch",
+        file_name=f"rating_curve_report{tag}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Data, fitted curve, uncertainty, diagnostics and the rating table in one workbook.",
+    )
+    st.download_button(
+        "Rating table", data=rating_csv, icon=":material/table:", width="stretch",
+        file_name=f"rating_table{tag}.csv", mime="text/csv",
+        help=f"Stage → discharge lookup every {rating_step:g} m, as CSV.",
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Headline numbers
 # --------------------------------------------------------------------------- #
-with main:
+with summary_box:
     valid_stage = cleaned.loc[cleaned["is_valid"], STAGE_M]
     stage_min = float(valid_stage.min()) if not valid_stage.empty else float("nan")
     stage_max = float(valid_stage.max()) if not valid_stage.empty else float("nan")
     quiet = dict(delta_color="off", delta_arrow="off")
 
-    # Wraps to a second row rather than squeezing when the window is narrow.
-    tiles = st.container(horizontal=True, wrap=True, gap="small", key="rca-tiles")
+    st.markdown('<div class="rca-label">Fit summary</div>', unsafe_allow_html=True)
+    summary_rows = []
+
+    def summary_row(label, value, delta=None, help=None, **_):
+        summary_rows.append({"Parameter": str(label), "Value": str(value), "Note": str(delta or "")})
     if p.get("is_segmented"):
         breaks = ", ".join(f"{x:.3f}" for x in p.get("breakpoints") or [])
-        tiles.metric("Segments", p["n_segments"], delta=f"breaks at {breaks} m" if breaks else None,
+        summary_row("Segments", p["n_segments"], delta=f"breaks at {breaks} m" if breaks else None,
                        help="Per-segment a and b are listed under Fit details.", **quiet)
     else:
-        tiles.metric("a", f"{p['a']:.4f}", help="Coefficient in Q = a·(H − h₀)^b.")
+        summary_row("a", f"{p['a']:.4f}", help="Coefficient in Q = a·(H − h₀)^b.")
         if p.get("b_fixed"):
             b_note = "imposed"
         elif bands and bands.get("b_ci"):
             b_note = f"{pct}% CI {bands['b_ci'][0]:.2f}–{bands['b_ci'][1]:.2f}"
         else:
             b_note = None
-        tiles.metric("b", f"{p['b']:.3f}", delta=b_note, help="Exponent in Q = a·(H − h₀)^b.", **quiet)
+        summary_row("b", f"{p['b']:.3f}", delta=b_note, help="Exponent in Q = a·(H − h₀)^b.", **quiet)
     if not p["h0_estimated"]:
         h0_note, h0_help = "set by hand", "Stage of zero flow, set by hand."
     else:
         h0_note = "weakly identified" if hd.get("railed") else "estimated"
         h0_help = f"Stage of zero flow, estimated from the low-flow gaugings ({hd.get('method', '?')} method)."
-    tiles.metric("h₀ (m)", f"{p['h0']:.3f}", delta=h0_note,
+    summary_row("h₀ (m)", f"{p['h0']:.3f}", delta=h0_note,
                    delta_color="orange" if hd.get("railed") else "off", delta_arrow="off",
                    help=h0_help)
-    tiles.metric(r2_label, f"{r2_value:.3f}")
-    tiles.metric("Valid rows", result.valid_count,
+    summary_row(r2_label, f"{r2_value:.3f}")
+    summary_row("Valid rows", result.valid_count,
                    delta=f"{result.invalid_count} excluded" if result.invalid_count else None,
                    delta_color="orange" if result.invalid_count else "off", delta_arrow="off")
-    tiles.metric("Warnings (kept)", result.warning_count,
+    summary_row("Warnings (kept)", result.warning_count,
                    help="Rows kept in the fit but flagged — see the Row warnings tab.")
     if bands:
         unit = "draws" if bands.get("kind") == "posterior" else "refits"
-        tiles.metric("Band at mid-stage", f"±{bands['ci_halfwidth_pct_at_median']:.0f}%",
+        summary_row("Band at mid-stage", f"±{bands['ci_halfwidth_pct_at_median']:.0f}%",
                        delta=f"{pct}% CI · {bands['n_success']} {unit}", **quiet)
     else:
-        tiles.metric("Band at mid-stage", "—", delta="needs ≥ 4 gaugings", **quiet)
-    tiles.metric("Stage range (m)", f"{stage_min:.2f}–{stage_max:.2f}")
+        summary_row("Band at mid-stage", "—", delta="needs ≥ 4 gaugings", **quiet)
+    summary_row("Stage range (m)", f"{stage_min:.2f}–{stage_max:.2f}")
+    summary_html = [
+        '<div class="rca-summary-table" role="table" aria-label="Fit summary">',
+        '<div class="rca-summary-row" role="row">'
+        '<div class="rca-summary-cell rca-summary-head" role="columnheader">Parameter</div>'
+        '<div class="rca-summary-cell rca-summary-head" role="columnheader">Value</div></div>',
+    ]
+    for row in summary_rows:
+        label_text = html.escape(row["Parameter"], quote=True)
+        value_text = html.escape(row["Value"], quote=True)
+        note_text = html.escape(row["Note"], quote=True)
+        note_html = f'<span class="rca-summary-note">{note_text}</span>' if note_text else ""
+        summary_html.append(
+            f'<div class="rca-summary-row" role="row" data-summary-label="{label_text}" '
+            f'data-summary-value="{value_text}" data-summary-note="{note_text}">'
+            f'<div class="rca-summary-cell" role="cell">{label_text}</div>'
+            f'<div class="rca-summary-cell rca-summary-value" role="cell">'
+            f'<span class="rca-summary-number">{value_text}</span>{note_html}</div></div>'
+        )
+    summary_html.append("</div>")
+    st.markdown("".join(summary_html), unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------- #
-# Plot beside the quality checks
+# Main curve and quality checks
 # --------------------------------------------------------------------------- #
 with main:
-    plot_col, check_col = st.columns([2.6, 1], gap="small")
-    with plot_col, st.container(border=True, key="rca-plot"):
-        st.pyplot(
-            make_rating_curve_figure(fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale,
-                                     fit=p, figure=Figure(figsize=(8.4, 5.2), dpi=130)),
-            width="stretch",
-        )
+    curve_figure = make_rating_curve_figure(
+        fit_df, a=p["a"], b=p["b"], h0=p["h0"], log_scale=log_scale,
+        fit=p, figure=Figure(figsize=(9, 6.3), dpi=160),
+    )
+    curve_figure.axes[0].set_title("", loc="left")  # The panel header carries the title and equation.
+    curve_figure.tight_layout(pad=1.1)
+    st.pyplot(curve_figure, width="stretch")
 
     checks: list[str] = []
     for title, detail in col_concerns:
@@ -671,7 +1000,7 @@ with main:
         checks.append(_check("ok", f"All {result.valid_count} rows usable"))
     if result.warning_count:
         checks.append(_check("info", f"{result.warning_count} row(s) kept with a warning",
-                             "Drawn as orange squares; details in the Row warnings tab."))
+                             "Drawn as outlined squares; details in the Row warnings tab."))
 
     level = "bad" if not outcome.is_plausible else "warn"
     for w in outcome.warnings:
@@ -704,15 +1033,22 @@ with main:
         else:
             checks.append(_check("ok", "Manning check", mc["message"]))
 
-    with check_col, st.container(border=True, key="rca-checks"):
-        st.markdown('<div class="rca-label">Checks</div>' + "".join(checks), unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------- #
-# Detail tabs
+# Detail tabs — a separate full-width screen below the dashboard.
 # --------------------------------------------------------------------------- #
-with main:
-    tab_names = ["Rating table", "Residuals over time", "Fit details"]
+overview.markdown(
+    '<div class="rca-screen-nav"><a href="#rca-details" target="_self">Explore detailed results ↓</a></div>',
+    unsafe_allow_html=True,
+)
+with st.container(key="rca-details"):
+    st.markdown(
+        '<div class="rca-details-heading" id="rca-details">'
+        '<h2>Detailed results</h2></div>',
+        unsafe_allow_html=True,
+    )
+    tab_names = ["Rating table", "Residuals over time", "Fit details", "Checks"]
     if result.invalid_count:
         tab_names.append(f"Excluded rows ({result.invalid_count})")
     if result.warning_count:
@@ -721,19 +1057,39 @@ with main:
         tab_names, default="Residuals over time" if drift and drift["flag"] == "likely" else None,
     )))
 
+    with tabs["Checks"]:
+        st.markdown('<div class="rca-label">Checks</div>' + "".join(checks), unsafe_allow_html=True)
+
     with tabs["Rating table"]:
         st.caption(f"Stage → discharge every {rating_step:g} m · {len(rating_table)} rows. "
                    "Change the step under Advanced.")
-        st.dataframe(rating_table, width="stretch", height=300, hide_index=True)
+        with st.container(key="rca-rating-table"):
+            st.dataframe(rating_table, width="stretch", height=660, hide_index=True)
+            st.markdown(
+                '<div class="rca-grid-header">'
+                '<span>Stage (m)<b class="rca-grid-header-menu">⋮</b></span>'
+                '<span>Discharge (m³/s)</span>'
+                '<span>95% confidence lower</span>'
+                '<span>95% confidence upper</span>'
+                '<span>95% prediction lower</span>'
+                '<span>95% prediction upper</span>'
+                '<span>Within gauged range</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
     with tabs["Residuals over time"]:
-        resid_fig = make_residual_time_figure(fit_df, p, figure=Figure(figsize=(10, 3.0), dpi=110))
+        resid_fig = make_residual_time_figure(fit_df, p, figure=Figure(figsize=(11, 4.2), dpi=240))
         if resid_fig is not None:
-            st.pyplot(resid_fig, width="stretch")
+            residual_svg = StringIO()
+            resid_fig.savefig(residual_svg, format="svg", bbox_inches="tight")
+            st.image(residual_svg.getvalue(), width="stretch")
         else:
             st.caption("The gaugings carry no usable dates, so residuals can't be plotted over time.")
 
     with tabs["Fit details"]:
+        st.caption("a is the curve coefficient; b is the exponent; h₀ is the stage of zero flow. "
+                   "Intervals in the fit summary describe parameter uncertainty.")
         if p.get("method") == "bayesian":
             bx = p.get("bayes", {})
             st.write(f"**Bayesian** (thodson-usgs `ratingcurve`, PyMC {bx.get('sampler', '?').upper()}). "
@@ -771,9 +1127,9 @@ with main:
         with tabs[f"Excluded rows ({result.invalid_count})"]:
             cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "validation_notes") if c in cleaned.columns]
             st.dataframe(_friendly(cleaned.loc[~cleaned["is_valid"], cols]),
-                         width="stretch", height=300, hide_index=True)
+                         width="stretch", height=560, hide_index=True)
     if result.warning_count:
         with tabs[f"Row warnings ({result.warning_count})"]:
             cols = [c for c in (DATE, STAGE_M, DISCHARGE_CMS, "warning_notes") if c in cleaned.columns]
             st.dataframe(_friendly(cleaned.loc[cleaned["has_warning"], cols]),
-                         width="stretch", height=300, hide_index=True)
+                         width="stretch", height=560, hide_index=True)

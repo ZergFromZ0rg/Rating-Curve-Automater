@@ -1,4 +1,6 @@
 from pathlib import Path
+import html
+import re
 
 import numpy as np
 import pandas as pd
@@ -12,6 +14,18 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 def _app():
     return AppTest.from_file(str(_PKG / "app.py"), default_timeout=60)
+
+
+def _summary(at):
+    markup = next(m.value for m in at.markdown if 'class="rca-summary-table"' in m.value)
+    rows = re.findall(
+        r'data-summary-label="([^"]*)" data-summary-value="([^"]*)" data-summary-note="([^"]*)"',
+        markup,
+    )
+    return {
+        html.unescape(label): html.unescape(value) + (f"\n{html.unescape(note)}" if note else "")
+        for label, value, note in rows
+    }
 
 
 def test_app_boots_without_a_file():
@@ -32,12 +46,14 @@ def test_app_full_run_on_bundled_dataset():
     at.run()
 
     assert not at.exception
-    metrics = {m.label: m.value for m in at.metric}
+    metrics = _summary(at)
     assert metrics["Valid rows"] == "120"
     assert metrics["Warnings (kept)"] == "12"
     assert 1.0 < float(metrics["a"]) < 1.4
     assert at.success and "R²" in at.success[0].value
-    assert at.get("download_button")
+    assert len(at.get("download_button")) == 2
+    assert not at.metric
+    assert "Checks" in {t.label for t in at.tabs}
 
 
 @pytest.mark.skipif(not DATASET.exists(), reason="bundled dataset missing")
@@ -64,7 +80,7 @@ def test_app_column_override(tmp_path):
     by_key["map_discharge_cms"].set_value("x2").run()
 
     assert not at.error
-    metrics = {m.label: m.value for m in at.metric}
+    metrics = _summary(at)
     assert metrics["Valid rows"] == str(n)
 
 
@@ -78,13 +94,13 @@ def test_app_impose_exponent_checkbox():
     cb.set_value(True).run()
 
     assert not at.exception
-    b_metric = next(m for m in at.metric if m.label == "b")
-    assert float(b_metric.value) == pytest.approx(2.0)
-    assert b_metric.delta == "imposed"
+    value, note = _summary(at)["b"].splitlines()
+    assert float(value) == pytest.approx(2.0)
+    assert note == "imposed"
 
 
 @pytest.mark.skipif(not DATASET.exists(), reason="bundled dataset missing")
-def test_app_segmented_fit_shows_segment_tile_and_detail_tabs():
+def test_app_segmented_fit_shows_segment_summary_and_detail_tabs():
     at = _app().run()
     at.file_uploader[0].upload("data.xlsx", DATASET.read_bytes(), XLSX_MIME)
     at.run()
@@ -93,8 +109,8 @@ def test_app_segmented_fit_shows_segment_tile_and_detail_tabs():
     shape.set_value(2).run()
 
     assert not at.exception
-    metrics = {m.label: m for m in at.metric}
-    assert metrics["Segments"].value == "2"
+    metrics = _summary(at)
+    assert metrics["Segments"].splitlines()[0].strip() == "2"
     assert "a" not in metrics  # per-segment a/b live under Fit details instead
     assert {t.label for t in at.tabs} >= {"Rating table", "Residuals over time", "Fit details"}
 

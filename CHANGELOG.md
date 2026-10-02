@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.9 — 2026-10-02
+
+- Rebuilt the Streamlit dashboard as a compact, responsive workspace with the
+  fit controls and summary arranged around the rating-curve graph.
+- Added a dedicated detailed-results screen for the rating table, residuals,
+  fit details, and validation checks.
+- Refined the light visual theme, spacing, typography, tables, controls, and
+  graph fullscreen behavior for a consistent interface.
+- Restyled the rating-curve and residual plots for clearer publication-style
+  lines, points, uncertainty bands, axes, and labels.
+- Improved the data-column review status and expanded automated coverage for
+  the redesigned summary and download workflow.
+
 ## v0.3.1 — 2026-09-06
 
 - Improved `segments="auto"` behavior when estimating `h0`.
