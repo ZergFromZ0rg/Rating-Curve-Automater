@@ -2,7 +2,7 @@
 
 `rating-curve-automater` is published at
 <https://pypi.org/project/rating-curve-automater/> (first release: `0.1.0`,
-2026-09-02; latest: `0.3.9`, 2026-10-02). This is the guide for cutting the next
+2026-09-02; latest: `0.3.10`, 2026-10-05). This is the guide for cutting the next
 one.
 
 ## Versioning
