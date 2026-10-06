@@ -192,6 +192,9 @@ def build_summary_table(fit: dict, table: pd.DataFrame) -> pd.DataFrame:
         if bands.get("a_ci"):
             lo, hi = bands["a_ci"]
             rows.append({"Metric": f"{pct}% CI on a", "Value": f"[{lo:.4f}, {hi:.4f}]"})
+        if bands.get("param_ci_truncated"):
+            rows.append({"Metric": "Note on a/b intervals",
+                         "Value": "One-sided: h0 is held at its 0 m bound, so the point estimate sits on the interval edge"})
         if bands.get("h0_ci"):
             lo, hi = bands["h0_ci"]
             src = "posterior" if bands.get("kind") == "posterior" else "re-estimated per replicate"

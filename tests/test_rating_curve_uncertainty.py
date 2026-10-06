@@ -133,3 +133,13 @@ def test_direct_helper_matches_fit_wiring():
 
     bands = bootstrap_rating_curve(stage, disch, fit, weights, n_bootstrap=200, random_state=7)
     assert set(bands) >= {"ci_lower", "ci_upper", "pi_lower", "pi_upper", "b_ci", "level"}
+
+
+def test_param_ci_truncated_flag_when_h0_pinned_at_zero():
+    stage = np.array([0.42, 0.55, 0.68, 0.81, 0.94, 1.08, 1.36, 1.51, 1.67, 1.83, 2.01])
+    q = np.array([1.18, 1.74, 2.36, 3.05, 3.84, 4.82, 7.08, 8.44, 10.02, 11.75, 13.76])
+    fit = fit_rating_curve(pd.DataFrame({"stage_m": stage, "discharge_cms": q}))
+    assert fit["h0_diagnostics"]["railed_low"]
+    bands = bootstrap_rating_curve(stage, q, fit, None, n_bootstrap=200,
+                                   random_state=3, reestimate_h0=True)
+    assert bands["param_ci_truncated"] is True

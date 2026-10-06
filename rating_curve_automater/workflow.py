@@ -115,6 +115,8 @@ class FitOutcome:
             lo, hi = bands["b_ci"]
             pct = int(round(bands["level"] * 100))
             line += f" | {pct}% CI b∈[{lo:.2f}, {hi:.2f}]"
+            if bands.get("param_ci_truncated"):
+                line += " (one-sided: h0 at bound)"
         elif bands:
             pct = int(round(bands["level"] * 100))
             line += f" | {pct}% band ±{bands['ci_halfwidth_pct_at_median']:.0f}% at median stage"

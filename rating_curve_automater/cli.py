@@ -48,10 +48,17 @@ def _launch_streamlit() -> int:
         print(f"packaged app.py is missing (looked in {script.parent}).", file=sys.stderr)
         return 1
     try:
-        # The app's styling is dark-only; without this a light-mode OS gets
-        # Streamlit's light widgets on the dark page.
-        return subprocess.call([sys.executable, "-m", "streamlit", "run", str(script),
-                                "--theme.base", "dark"])
+        # The app's styling is light-only. The repo's .streamlit/config.toml is
+        # not shipped in the wheel, so pass the theme explicitly; otherwise a
+        # dark-mode OS gets Streamlit's dark widgets on the light page.
+        return subprocess.call([
+            sys.executable, "-m", "streamlit", "run", str(script),
+            "--theme.base", "light",
+            "--theme.primaryColor", "#2478e5",
+            "--theme.backgroundColor", "#ffffff",
+            "--theme.secondaryBackgroundColor", "#ffffff",
+            "--theme.textColor", "#17324a",
+        ])
     except KeyboardInterrupt:  # Ctrl+C: Streamlit already stopped; exit quietly
         return 130
 

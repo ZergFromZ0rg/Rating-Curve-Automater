@@ -958,6 +958,8 @@ def main() -> None:
         if bands.get("a_ci"):
             lo, hi = bands["a_ci"]
             print(f"{pct}% CI: a in [{lo:.4f}, {hi:.4f}]")
+        if bands.get("param_ci_truncated"):
+            print("  (a/b intervals are one-sided: h0 is held at its 0 m bound)")
         if bands.get("h0_ci"):
             lo, hi = bands["h0_ci"]
             print(f"{pct}% CI: h0 in [{lo:.3f}, {hi:.3f}] (propagated through the band)")

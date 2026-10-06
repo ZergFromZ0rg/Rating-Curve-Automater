@@ -353,38 +353,6 @@ st.markdown(
     .st-key-rca-details [data-testid="stDataFrame"] [role="columnheader"] * {
         color:#000 !important; fill:#000 !important;
     }
-    .st-key-rca-rating-table { position:relative; }
-    .st-key-rca-rating-table [data-testid="stDataFrame"] { position:relative; }
-    .st-key-rca-rating-table [data-testid="stDataFrame"]::after {
-        content:""; position:absolute; z-index:4; pointer-events:none;
-        left:0; right:0; top:2.2rem; height:2px; background:#8999a6;
-    }
-    .st-key-rca-rating-table [data-testid="stMarkdownContainer"]:has(> .rca-grid-header) {
-        position:relative; z-index:20;
-        height:0; min-height:0; margin:0 !important; overflow:visible;
-        transform:translateY(calc(-660px - .45rem));
-        pointer-events:none;
-    }
-    .rca-grid-header {
-        position:absolute; inset:0; height:2.2rem;
-        display:grid;
-        grid-template-columns:10.1% 13.1% 15.55% 15.6% 15.15% 15.35% 15.15%;
-        overflow:hidden; box-sizing:border-box; pointer-events:none;
-        background:#fff; border-radius:8px 8px 0 0;
-        border:1px solid var(--rca-border); border-bottom:0;
-    }
-    .rca-grid-header > span {
-        min-width:0; padding:.4rem .55rem; display:flex; align-items:center;
-        color:#000; font-size:.82rem; font-weight:400; line-height:1.2;
-        white-space:nowrap; overflow:hidden; text-overflow:clip;
-        border-left:1px solid #d8dee3;
-    }
-    .rca-grid-header > span:first-child {
-        border-left:0; justify-content:space-between;
-    }
-    .rca-grid-header-menu {
-        color:#000; font-size:1rem; line-height:1; margin-left:.35rem;
-    }
     .st-key-rca-overview > [data-testid="stVerticalBlock"] { min-height:calc(100svh - 2.5rem); }
     .st-key-rca-overview [data-testid="stMarkdownContainer"]:has(> .rca-screen-nav) {
         flex:1 1 auto; min-height:clamp(3rem, 6svh, 4.5rem);
@@ -929,6 +897,8 @@ with summary_box:
             b_note = "imposed"
         elif bands and bands.get("b_ci"):
             b_note = f"{pct}% CI {bands['b_ci'][0]:.2f}–{bands['b_ci'][1]:.2f}"
+            if bands.get("param_ci_truncated"):
+                b_note += " · one-sided, h₀ at 0 bound"
         else:
             b_note = None
         summary_row("b", f"{p['b']:.3f}", delta=b_note, help="Exponent in Q = a·(H − h₀)^b.", **quiet)
@@ -1065,18 +1035,6 @@ with st.container(key="rca-details"):
                    "Change the step under Advanced.")
         with st.container(key="rca-rating-table"):
             st.dataframe(rating_table, width="stretch", height=660, hide_index=True)
-            st.markdown(
-                '<div class="rca-grid-header">'
-                '<span>Stage (m)<b class="rca-grid-header-menu">⋮</b></span>'
-                '<span>Discharge (m³/s)</span>'
-                '<span>95% confidence lower</span>'
-                '<span>95% confidence upper</span>'
-                '<span>95% prediction lower</span>'
-                '<span>95% prediction upper</span>'
-                '<span>Within gauged range</span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
 
     with tabs["Residuals over time"]:
         resid_fig = make_residual_time_figure(fit_df, p, figure=Figure(figsize=(11, 4.2), dpi=240))

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.10 — 2026-10-05
+
+- `rca app` now launches with the light theme (it was forcing Streamlit's dark
+  theme onto the light-styled page, and the repo's `.streamlit/config.toml`
+  isn't shipped in the wheel).
+- Removed the hand-positioned header overlay on the rating-table grid; it
+  hard-coded "95%" and fixed pixel offsets and could drift out of alignment.
+- The a/b bootstrap intervals are now labelled one-sided when h0 is pinned at
+  its 0 m bound (the point estimate otherwise sits exactly on the interval edge).
+- CI/publish workflows moved to Node 24 action versions (checkout v5,
+  setup-python v6, artifact v5).
+
 ## v0.3.9 — 2026-10-02
 
 - Rebuilt the Streamlit dashboard as a compact, responsive workspace with the

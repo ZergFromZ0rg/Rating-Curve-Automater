@@ -187,5 +187,11 @@ def bootstrap_rating_curve(
         "b_ci": None if fit.get("b_fixed") else _pair(b_samples),
         "h0_ci": _pair(h0_samples) if reestimate_h0 else None,
         "h0_reestimated": bool(reestimate_h0),
+        # h0 is clamped at 0 when the data want it lower, so every replicate is
+        # truncated the same way: the a/b percentile intervals are one-sided and
+        # the point estimate sits on their edge. Callers should say so.
+        "param_ci_truncated": bool(
+            reestimate_h0 and (fit.get("h0_diagnostics") or {}).get("railed_low")
+        ),
         "ci_halfwidth_pct_at_median": ci_halfwidth_pct,
     }
